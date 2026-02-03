@@ -101,6 +101,13 @@ public final class AIPlayerCommands {
                                     IntegerArgumentType.getInteger(context, "id"),
                                     StringArgumentType.getString(context, "objective")
                                 )))))
+                    .then(Commands.literal("delete")
+                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                            .executes(context -> botTaskDelete(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "id")
+                            ))))
                     .then(Commands.argument("objective", StringArgumentType.greedyString())
                         .executes(context -> botTask(
                             context.getSource(),
@@ -381,6 +388,17 @@ public final class AIPlayerCommands {
         return 1;
     }
 
+
+    private static int botTaskDelete(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
+        boolean deleted = runtime.deleteBotTask(taskId);
+        if (!deleted) {
+            source.sendFailure(Component.literal("Bot task non supprimable: id=" + taskId + " (inconnue ou non fermee)"));
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.literal("Bot task DELETED id=" + taskId), false);
+        return 1;
+    }
     private static int botTaskInfo(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
         Optional<BotMemoryRepository.BotTask> taskOptional = runtime.getBotTaskById(taskId);
         if (taskOptional.isEmpty()) {
