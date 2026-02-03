@@ -21,9 +21,9 @@
 ### Phase 1 : DEFINITION (Semaine 1)
 
 #### 1.1 Comprendre le contexte
-- [ ] Version NeoForge exacte (1.21.1 ? check build.gradle)
-- [ ] Lister mods serveur (MineColonies, AE2, ComputerCraft, Create, etc.)
-- [ ] MineColonies : peut-on créer owner bot programmatiquement ? (API étude)
+- [x] Version NeoForge exacte validée: Minecraft 1.21.1 + NeoForge 21.1.172 (aiplayer-mod/gradle.properties).
+- [x] Mods serveur inventoriés (`Ressource minecraft/mods`): 421 jars, incluant MineColonies, AE2, CC-Tweaked, Create.
+- [x] MineColonies owner programmatique: partiel (API reflective OK pour assigner un `ServerPlayer` via `setOwner(Player)`; owner bot entite non joueur non supporte a ce stade).
 - [ ] AE2 : accès API Grids, Channels, Crafting tasks ?
 - [ ] ComputerCraft : bot peut-il écrire/exécuter Lua scripts ?
 - [ ] Identifier autres mods intéressants pour phases futures
