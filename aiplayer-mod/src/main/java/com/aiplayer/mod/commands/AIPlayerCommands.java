@@ -45,6 +45,21 @@ public final class AIPlayerCommands {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, AIPlayerRuntime runtime) {
         dispatcher.register(
+            Commands.literal("bot")
+                .requires(source -> source.hasPermission(2))
+                .then(Commands.literal("spawn")
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .executes(context -> spawnMarkerNamed(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "name")
+                        )))
+                    .executes(context -> spawnMarkerNamed(context.getSource(), runtime, "AIPlayer Bot")))
+                .then(Commands.literal("status")
+                    .executes(context -> showStatus(context.getSource(), runtime)))
+        );
+
+        dispatcher.register(
             Commands.literal("aiplayer")
                 .requires(source -> source.hasPermission(2))
                 .then(Commands.literal("status")
@@ -156,6 +171,17 @@ public final class AIPlayerCommands {
         }
 
         source.sendSuccess(() -> Component.literal("Bot marker spawned"), false);
+        return 1;
+    }
+
+    private static int spawnMarkerNamed(CommandSourceStack source, AIPlayerRuntime runtime, String markerName) {
+        boolean spawned = runtime.spawnMarker(source.getLevel(), source.getPosition(), markerName);
+        if (!spawned) {
+            source.sendFailure(Component.literal("Unable to spawn bot marker"));
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.literal("Bot marker spawned: " + markerName), false);
         return 1;
     }
 
