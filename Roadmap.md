@@ -636,7 +636,7 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] MineColonies API study (owner assignment feasibility)
 - [x] AE2 API access confirmed
 - [x] CC peripheral interface documented
-- [ ] 6c/24GB server ready
+- [ ] 6c/24GB server ready (actuel: host 6 cores / 16.47 GB RAM; Docker alloue: 12 vCPU / 7.98 GB)
 
 **Go?** ✅ Start Sprint 1 → Bot becomes Town Hall Owner
 ---
@@ -651,3 +651,4 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] MineColonies owner bridge integrated (create/claim/recruit commands)
 - [x] AE2 baseline integrated (scan/status/suggest commands)
 - [x] AE2 autocrafting request pipeline (queue persistée + commandes craft/queue + dispatch runtime)
+- [x] Plan d'action appliqué: `/bot spawn <name>` ajouté (kickoff Sprint 1).

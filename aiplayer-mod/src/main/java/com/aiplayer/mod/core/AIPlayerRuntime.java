@@ -152,6 +152,10 @@ public final class AIPlayerRuntime {
     }
 
     public boolean spawnMarker(ServerLevel level, Vec3 position) {
+        return spawnMarker(level, position, "AIPlayer Bot");
+    }
+
+    public boolean spawnMarker(ServerLevel level, Vec3 position, String markerName) {
         ArmorStand marker = EntityType.ARMOR_STAND.create(level);
         if (marker == null) {
             return false;
@@ -160,14 +164,14 @@ public final class AIPlayerRuntime {
         marker.moveTo(position.x, position.y, position.z, 0.0f, 0.0f);
         marker.setNoGravity(true);
         marker.setInvulnerable(true);
-        marker.setCustomName(Component.literal("AIPlayer Bot"));
+        marker.setCustomName(Component.literal(markerName));
         marker.setCustomNameVisible(true);
         marker.addTag(MARKER_TAG);
 
         boolean added = level.addFreshEntity(marker);
         if (added) {
             this.botMarkerEntityId = marker.getUUID();
-            this.memoryRepository.recordAction("spawn-marker", this.botMarkerEntityId.toString());
+            this.memoryRepository.recordAction("spawn-marker", this.botMarkerEntityId + " name=" + markerName);
         }
 
         return added;
