@@ -13,6 +13,8 @@ docker build -f docker/mod-build-check.Dockerfile -t aiplayer-mod-check .
 - `/bot spawn [name]`
 - `/bot status`
 - `/bot task <objective>`
+- `/bot task done <id>`
+- `/bot task cancel <id>`
 - `/bot tasks [limit]`
 - `/bot ask <question>`
 - `/bot interactions [limit]`

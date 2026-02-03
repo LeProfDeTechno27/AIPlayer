@@ -656,3 +656,4 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Plan appliqué (Sprint 1): `/bot ask <question>` + log SQLite `interactions` + `/bot interactions`.
 - [x] Plan appliqué (Sprint 3 kickoff): `/bot ask` connecté à Ollama (`qwen3:8b`) avec fallback.
 - [x] Plan appliqué (Sprint 1): boucle simple tasks `/aiplayer tick` (`PENDING -> ACTIVE -> DONE`).
+- [x] Plan appliqué (Sprint 1): commandes manuelles `/bot task done <id>` et `/bot task cancel <id>`.
