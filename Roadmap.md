@@ -26,7 +26,7 @@
 - [x] MineColonies owner programmatique: partiel (API reflective OK pour assigner un `ServerPlayer` via `setOwner(Player)`; owner bot entite non joueur non supporte a ce stade).
 - [x] AE2 API (grids/channels/crafting): partiel. Probe classes + scan blocs + queue craft locale OK; pilotage direct IGrid/channels/ICraftingService non implemente.
 - [x] ComputerCraft : non a ce stade. Module placeholder present, mais aucun bridge CC-Tweaked/API peripheral ni ecriture/execution Lua implementee.
-- [ ] Identifier autres mods intéressants pour phases futures
+- [x] Identifier autres mods interessants (phases futures): Mekanism, Immersive Engineering, Industrial Foregoing, IntegratedDynamics/Tunnels, Advanced Peripherals, PneumaticCraft, Powah, Refined Storage, FTB Quests, Modular Routers, Sophisticated Storage/Backpacks, Ars Nouveau, Occultism.
 
 #### 1.2 Architecture système (PluginBase)
 
