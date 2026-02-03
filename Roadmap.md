@@ -1,4 +1,4 @@
-# Plan d'Action BMAD Avancé : Mod NeoForge IA Town Hall Owner (1.21.1)
+﻿# Plan d'Action BMAD Avancé : Mod NeoForge IA Town Hall Owner (1.21.1)
 
 ## 🎯 Vision Produit
 **Créer un mod NeoForge qui spawne une entité IA autonome capable de :**
@@ -650,4 +650,4 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Sprint 1 base: runtime, /aiplayer commands, SQLite persistence
 - [x] MineColonies owner bridge integrated (create/claim/recruit commands)
 - [x] AE2 baseline integrated (scan/status/suggest commands)
-- [ ] Next step: AE2 autocrafting request pipeline
+- [x] AE2 autocrafting request pipeline (queue persistée + commandes craft/queue + dispatch runtime)
