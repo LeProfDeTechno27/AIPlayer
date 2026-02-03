@@ -26,6 +26,7 @@ public final class AIPlayerRuntime {
 
     private String phase;
     private UUID botMarkerEntityId;
+    private String currentObjective;
 
     public AIPlayerRuntime(ModuleManager moduleManager, BotMemoryRepository memoryRepository) {
         this.moduleManager = moduleManager;
@@ -33,6 +34,7 @@ public final class AIPlayerRuntime {
         this.mineColoniesBridge = new MineColoniesBridge();
         this.ae2Bridge = new AE2Bridge();
         this.phase = this.memoryRepository.loadCurrentPhase().orElse("bootstrap");
+        this.currentObjective = this.memoryRepository.loadCurrentBotTask().map(BotMemoryRepository.BotTask::objective).orElse("none");
     }
 
     public void initialize() {
@@ -43,6 +45,10 @@ public final class AIPlayerRuntime {
         return this.phase;
     }
 
+    public String getCurrentObjective() {
+        return this.currentObjective;
+    }
+
     public void setPhase(String nextPhase) {
         this.phase = nextPhase;
         this.memoryRepository.saveCurrentPhase(nextPhase);
@@ -51,6 +57,7 @@ public final class AIPlayerRuntime {
 
     public void tickOnce() {
         this.moduleManager.tickEnabled();
+        refreshCurrentObjective();
         processPendingAe2CraftRequests();
         this.memoryRepository.recordAction("tick", "ok");
     }
@@ -77,6 +84,26 @@ public final class AIPlayerRuntime {
 
     public List<String> getRegisteredModules() {
         return this.moduleManager.getRegisteredModuleNames();
+    }
+
+    public long queueBotTask(String objective, String requestedBy) {
+        long taskId = this.memoryRepository.enqueueBotTask(objective, requestedBy);
+        if (taskId > 0) {
+            this.memoryRepository.recordAction("bot-task-enqueue", "id=" + taskId + " by=" + requestedBy + " objective=" + objective);
+            if ("none".equals(this.currentObjective)) {
+                this.currentObjective = objective;
+                this.memoryRepository.updateBotTaskStatus(taskId, "ACTIVE");
+            }
+        }
+        return taskId;
+    }
+
+    public List<BotMemoryRepository.BotTask> getOpenBotTasks(int limit) {
+        return this.memoryRepository.loadOpenBotTasks(limit);
+    }
+
+    public int countOpenBotTasks() {
+        return this.memoryRepository.countOpenBotTasks();
     }
 
     public boolean isMineColoniesAvailable() {
@@ -191,6 +218,19 @@ public final class AIPlayerRuntime {
 
     public boolean isMarkerAlive(ServerLevel level) {
         return getTrackedMarker(level) != null;
+    }
+
+    private void refreshCurrentObjective() {
+        Optional<BotMemoryRepository.BotTask> current = this.memoryRepository.loadCurrentBotTask();
+        if (current.isPresent()) {
+            BotMemoryRepository.BotTask task = current.get();
+            this.currentObjective = task.objective();
+            if ("PENDING".equals(task.status())) {
+                this.memoryRepository.updateBotTaskStatus(task.id(), "ACTIVE");
+            }
+        } else {
+            this.currentObjective = "none";
+        }
     }
 
     private void processPendingAe2CraftRequests() {

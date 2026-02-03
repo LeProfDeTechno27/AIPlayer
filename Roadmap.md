@@ -652,3 +652,4 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] AE2 baseline integrated (scan/status/suggest commands)
 - [x] AE2 autocrafting request pipeline (queue persistée + commandes craft/queue + dispatch runtime)
 - [x] Plan d'action appliqué: `/bot spawn <name>` ajouté (kickoff Sprint 1).
+- [x] Plan appliqué (Sprint 1): `/bot task <objectif>` + `/bot tasks` + persistance `bot_tasks`.
