@@ -67,6 +67,7 @@ Documentation de l'interface peripherals/turtles:
 
 - /bot ask interroge Ollama (qwen3:8b) via http://localhost:11434.
 - Variables optionnelles: AIPLAYER_OLLAMA_URL, AIPLAYER_OLLAMA_MODEL.
+- Modules activés au démarrage (optionnel): AIPLAYER_ENABLED_MODULES=minecolonies,ae2,computercraft,create.
 - Fallback automatique si Ollama indisponible.
 
 ## Task Lifecycle

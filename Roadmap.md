@@ -665,3 +665,4 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Plan appliqué (Sprint 1): commande `/bot task update <id> <objective>` pour corriger un objectif en cours.
 - [x] Plan appliqué (Sprint 1): commande `/bot task delete <id>` pour supprimer une tâche fermée ciblée.
 - [x] Plan appliqué (Sprint 1): commande `/bot task start <id>` pour forcer une tâche en ACTIVE.
+- [x] Plan appliqué (Phase 1.2): activation dynamique des modules au boot via `AIPLAYER_ENABLED_MODULES`.
