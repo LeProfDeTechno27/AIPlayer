@@ -104,6 +104,23 @@ public final class AIPlayerRuntime {
     public int countOpenBotTasks() {
         return this.memoryRepository.countOpenBotTasks();
     }
+    public boolean markBotTaskDone(long taskId) {
+        boolean updated = this.memoryRepository.updateBotTaskStatus(taskId, "DONE");
+        if (updated) {
+            this.memoryRepository.recordAction("bot-task-done-manual", "id=" + taskId);
+            this.currentObjective = this.memoryRepository.loadCurrentBotTask().map(BotMemoryRepository.BotTask::objective).orElse("none");
+        }
+        return updated;
+    }
+
+    public boolean cancelBotTask(long taskId) {
+        boolean updated = this.memoryRepository.updateBotTaskStatus(taskId, "CANCELED");
+        if (updated) {
+            this.memoryRepository.recordAction("bot-task-cancel", "id=" + taskId);
+            this.currentObjective = this.memoryRepository.loadCurrentBotTask().map(BotMemoryRepository.BotTask::objective).orElse("none");
+        }
+        return updated;
+    }
 
     public BotAskResult askBot(String playerId, String question) {
         String response = this.ollamaClient.ask(question, this.currentObjective)
