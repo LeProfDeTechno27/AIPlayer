@@ -43,6 +43,7 @@ Persisted tables:
 
 - `bot_state`
 - `bot_actions`
+- `bot_tasks`
 - `ae2_craft_requests`
 
 ## ComputerCraft
