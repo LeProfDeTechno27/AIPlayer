@@ -658,3 +658,5 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Plan appliqué (Sprint 1): boucle simple tasks `/aiplayer tick` (`PENDING -> ACTIVE -> DONE`).
 - [x] Plan appliqué (Sprint 1): commandes manuelles `/bot task done <id>` et `/bot task cancel <id>`.
 - [x] Plan appliqué (Sprint 1): commande `/bot task reopen <id>` pour remettre une tâche en PENDING.
+- [x] Plan appliqué (Sprint 1): commande `/bot tasks all [limit]` pour consulter l'historique complet des tâches.
+- [x] Plan appliqué (Sprint 1): commande `/bot tasks status <status> [limit]` pour filtrer les tâches par état.

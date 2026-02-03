@@ -15,6 +15,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.StringJoiner;
 
@@ -28,6 +29,8 @@ public final class AIPlayerCommands {
     private static final int DEFAULT_AE2_QUEUE_LIMIT = 10;
     private static final int DEFAULT_BOT_TASK_LIST_LIMIT = 5;
     private static final int DEFAULT_BOT_INTERACTION_LIST_LIMIT = 5;
+
+    private static final List<String> BOT_TASK_STATUS_SUGGESTIONS = List.of("PENDING", "ACTIVE", "DONE", "CANCELED");
 
     private static final List<String> COLONY_STYLE_SUGGESTIONS = List.of(
         "medievaloak",
@@ -89,6 +92,31 @@ public final class AIPlayerCommands {
                         ))))
                 .then(Commands.literal("tasks")
                     .executes(context -> botTasks(context.getSource(), runtime, DEFAULT_BOT_TASK_LIST_LIMIT))
+                    .then(Commands.literal("all")
+                        .executes(context -> botTasks(context.getSource(), runtime, DEFAULT_BOT_TASK_LIST_LIMIT, true))
+                        .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
+                            .executes(context -> botTasks(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "limit"),
+                                true
+                            ))))
+                    .then(Commands.literal("status")
+                        .then(Commands.argument("status", StringArgumentType.word())
+                            .suggests((context, builder) -> SharedSuggestionProvider.suggest(BOT_TASK_STATUS_SUGGESTIONS, builder))
+                            .executes(context -> botTasksByStatus(
+                                context.getSource(),
+                                runtime,
+                                StringArgumentType.getString(context, "status"),
+                                DEFAULT_BOT_TASK_LIST_LIMIT
+                            ))
+                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
+                                .executes(context -> botTasksByStatus(
+                                    context.getSource(),
+                                    runtime,
+                                    StringArgumentType.getString(context, "status"),
+                                    IntegerArgumentType.getInteger(context, "limit")
+                                )))))
                     .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
                         .executes(context -> botTasks(
                             context.getSource(),
@@ -282,20 +310,45 @@ public final class AIPlayerCommands {
     }
 
     private static int botTasks(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
-        List<BotMemoryRepository.BotTask> tasks = runtime.getOpenBotTasks(limit);
-        int total = runtime.countOpenBotTasks();
+        return botTasks(source, runtime, limit, false);
+    }
+
+    private static int botTasks(CommandSourceStack source, AIPlayerRuntime runtime, int limit, boolean includeClosed) {
+        List<BotMemoryRepository.BotTask> tasks = runtime.getBotTasks(limit, includeClosed);
+        int total = runtime.countBotTasks(includeClosed);
+        String scope = includeClosed ? "all" : "open";
 
         if (tasks.isEmpty()) {
-            source.sendSuccess(() -> Component.literal("Bot tasks: none (open=" + total + ")"), false);
+            source.sendSuccess(() -> Component.literal("Bot tasks: none (" + scope + "=" + total + ")"), false);
             return 1;
         }
 
         StringJoiner joiner = new StringJoiner(" | ");
         tasks.forEach(task -> joiner.add("#" + task.id() + " " + task.status() + " " + task.objective()));
-        source.sendSuccess(() -> Component.literal("Bot tasks open=" + total + " -> " + joiner), false);
+        source.sendSuccess(() -> Component.literal("Bot tasks " + scope + "=" + total + " -> " + joiner), false);
         return 1;
     }
 
+
+    private static int botTasksByStatus(CommandSourceStack source, AIPlayerRuntime runtime, String statusValue, int limit) {
+        String status = statusValue.toUpperCase(Locale.ROOT);
+        if (!BOT_TASK_STATUS_SUGGESTIONS.contains(status)) {
+            source.sendFailure(Component.literal("Statut invalide: " + statusValue + " (PENDING|ACTIVE|DONE|CANCELED)"));
+            return 0;
+        }
+
+        List<BotMemoryRepository.BotTask> tasks = runtime.getBotTasksByStatus(status, limit);
+        int total = runtime.countBotTasksByStatus(status);
+        if (tasks.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("Bot tasks: none (status=" + status + " total=" + total + ")"), false);
+            return 1;
+        }
+
+        StringJoiner joiner = new StringJoiner(" | ");
+        tasks.forEach(task -> joiner.add("#" + task.id() + " " + task.status() + " " + task.objective()));
+        source.sendSuccess(() -> Component.literal("Bot tasks status=" + status + " total=" + total + " -> " + joiner), false);
+        return 1;
+    }
     private static int botTaskDone(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
         boolean updated = runtime.markBotTaskDone(taskId);
         if (!updated) {
