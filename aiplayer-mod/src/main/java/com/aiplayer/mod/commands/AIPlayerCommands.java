@@ -109,6 +109,8 @@ public final class AIPlayerCommands {
                                 runtime,
                                 IntegerArgumentType.getInteger(context, "radius")
                             ))))
+                    .then(Commands.literal("api")
+                        .executes(context -> ae2Api(context.getSource(), runtime)))
                     .then(Commands.literal("craft")
                         .then(Commands.argument("itemId", StringArgumentType.word())
                             .executes(context -> ae2Craft(
@@ -301,6 +303,24 @@ public final class AIPlayerCommands {
             () -> Component.literal("AE2 stage=" + scan.stage() + " -> " + scan.nextActionHint()),
             false
         );
+        return 1;
+    }
+
+    private static int ae2Api(CommandSourceStack source, AIPlayerRuntime runtime) {
+        AE2Bridge.AE2ApiProbeResult probe = runtime.probeAe2Api();
+        String details = "found=" + probe.foundCount() + "/" + probe.expectedCount();
+
+        if (!runtime.isAe2Available()) {
+            source.sendFailure(Component.literal("AE2 n'est pas charge (" + details + ")"));
+            return 0;
+        }
+
+        if (!probe.accessible()) {
+            source.sendFailure(Component.literal("AE2 API indisponible: " + details));
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.literal("AE2 API OK: " + details), false);
         return 1;
     }
 

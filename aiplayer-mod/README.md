@@ -1,4 +1,4 @@
-﻿# AIPlayer Mod (Sprint 1-2 baseline)
+# AIPlayer Mod (Sprint 1-2 baseline)
 
 ## Build (validation image)
 
@@ -25,6 +25,7 @@ docker build -f docker/mod-build-check.Dockerfile -t aiplayer-mod-check .
 - `/aiplayer colony recruit <count>`
 - `/aiplayer ae2 status [radius]`
 - `/aiplayer ae2 suggest [radius]`
+- `/aiplayer ae2 api`
 - `/aiplayer ae2 craft <itemId> [quantity]`
 - `/aiplayer ae2 queue [limit]`
 

@@ -126,6 +126,12 @@ public final class AIPlayerRuntime {
         return result;
     }
 
+    public AE2Bridge.AE2ApiProbeResult probeAe2Api() {
+        AE2Bridge.AE2ApiProbeResult result = this.ae2Bridge.probeApi();
+        this.memoryRepository.recordAction("ae2-api-probe", result.summary());
+        return result;
+    }
+
     public long queueAe2CraftRequest(String itemId, int quantity, String requestedBy) {
         long requestId = this.memoryRepository.enqueueAe2CraftRequest(itemId, quantity, requestedBy);
         if (requestId > 0) {

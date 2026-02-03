@@ -7,13 +7,44 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.fml.ModList;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public final class AE2Bridge {
     private static final int MIN_RADIUS = 2;
     private static final int MAX_RADIUS = 32;
     private static final int VERTICAL_SCAN = 6;
 
+    private static final String[] AE2_API_PROBES = {
+        "appeng.api.networking.IGrid",
+        "appeng.api.networking.IGridNode",
+        "appeng.api.networking.crafting.ICraftingService",
+        "appeng.api.networking.storage.IStorageService"
+    };
+
     public boolean isAvailable() {
         return ModList.get().isLoaded("ae2");
+    }
+
+    public AE2ApiProbeResult probeApi() {
+        if (!isAvailable()) {
+            return new AE2ApiProbeResult(false, 0, AE2_API_PROBES.length, List.of(), List.of(AE2_API_PROBES));
+        }
+
+        List<String> found = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+
+        for (String className : AE2_API_PROBES) {
+            try {
+                Class.forName(className, false, getClass().getClassLoader());
+                found.add(className);
+            } catch (ClassNotFoundException ignored) {
+                missing.add(className);
+            }
+        }
+
+        boolean apiAccessible = !found.isEmpty();
+        return new AE2ApiProbeResult(apiAccessible, found.size(), AE2_API_PROBES.length, found, missing);
     }
 
     public AE2ScanResult scan(ServerLevel level, BlockPos center, int radius) {
@@ -80,6 +111,21 @@ public final class AE2Bridge {
             crafters,
             energyCells
         );
+    }
+
+    public record AE2ApiProbeResult(
+        boolean accessible,
+        int foundCount,
+        int expectedCount,
+        List<String> foundClasses,
+        List<String> missingClasses
+    ) {
+        public String summary() {
+            if (!accessible) {
+                return "api=unavailable found=" + foundCount + "/" + expectedCount;
+            }
+            return "api=available found=" + foundCount + "/" + expectedCount;
+        }
     }
 
     public record AE2ScanResult(
