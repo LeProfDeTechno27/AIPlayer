@@ -1,0 +1,85 @@
+name: aiplayer
+
+services:
+  minecraft:
+    build:
+      context: .
+      dockerfile: docker/minecraft/Dockerfile
+    container_name: aiplayer-minecraft
+    restart: unless-stopped
+    environment:
+      TZ: "${TZ:-Europe/Paris}"
+      EULA: "${MC_EULA:-TRUE}"
+      TYPE: NEOFORGE
+      VERSION: "${MC_VERSION:-1.21.1}"
+      NEOFORGE_VERSION: "${MC_NEOFORGE_VERSION:-21.1.172}"
+      MEMORY: "${MC_JVM_HEAP_MAX:-8G}"
+      USE_AIKAR_FLAGS: "${MC_USE_AIKAR_FLAGS:-true}"
+    ports:
+      - "${MC_PORT:-25565}:25565"
+    volumes:
+      - minecraft_data:/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - grep -q "Done" /data/logs/latest.log
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 180s
+
+  ollama:
+    image: "ollama/ollama:${OLLAMA_TAG:-latest}"
+    container_name: aiplayer-ollama
+    restart: unless-stopped
+    environment:
+      TZ: "${TZ:-Europe/Paris}"
+    ports:
+      - "${OLLAMA_PORT:-11434}:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test:
+        - CMD
+        - ollama
+        - list
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  ollama-pull:
+    image: "ollama/ollama:${OLLAMA_TAG:-latest}"
+    container_name: aiplayer-ollama-pull
+    profiles:
+      - bootstrap
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+      OLLAMA_MODEL: "${OLLAMA_MODEL:-qwen3:8b}"
+    entrypoint:
+      - /bin/sh
+      - -c
+      - ollama pull "$OLLAMA_MODEL"
+
+  mod-dev:
+    image: gradle:8.14.3-jdk21
+    container_name: aiplayer-mod-dev
+    profiles:
+      - dev
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    environment:
+      TZ: "${TZ:-Europe/Paris}"
+    volumes:
+      - ./:/workspace
+      - gradle_cache:/home/gradle/.gradle
+
+volumes:
+  minecraft_data:
+  ollama_data:
+  gradle_cache:
