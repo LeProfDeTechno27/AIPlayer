@@ -125,6 +125,15 @@ public final class AIPlayerRuntime {
         return this.memoryRepository.loadBotTaskById(taskId);
     }
 
+
+    public boolean deleteBotTask(long taskId) {
+        boolean deleted = this.memoryRepository.deleteBotTask(taskId);
+        if (deleted) {
+            this.memoryRepository.recordAction("bot-task-delete", "id=" + taskId);
+            this.currentObjective = this.memoryRepository.loadCurrentBotTask().map(BotMemoryRepository.BotTask::objective).orElse("none");
+        }
+        return deleted;
+    }
     public int pruneClosedBotTasks(int limit) {
         int deleted = this.memoryRepository.deleteClosedBotTasks(limit);
         if (deleted > 0) {

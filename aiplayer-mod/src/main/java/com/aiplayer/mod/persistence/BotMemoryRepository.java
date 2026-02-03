@@ -321,6 +321,20 @@ public final class BotMemoryRepository {
         return 0;
     }
 
+
+    public boolean deleteBotTask(long taskId) {
+        String sql = "DELETE FROM bot_tasks WHERE id = ? AND status IN ('DONE','CANCELED')";
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, taskId);
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to delete bot task id={}", taskId, exception);
+        }
+
+        return false;
+    }
     public int deleteClosedBotTasks(int limit) {
         int safeLimit = Math.max(1, Math.min(1000, limit));
         String sql = """
