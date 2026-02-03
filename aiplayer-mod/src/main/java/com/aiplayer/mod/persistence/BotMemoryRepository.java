@@ -207,6 +207,60 @@ public final class BotMemoryRepository {
 
         return false;
     }
+    public long recordInteraction(String playerId, String question, String response) {
+        String sql = "INSERT INTO interactions(player_id, question, response, created_at) VALUES (?, ?, ?, ?)";
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            statement.setString(1, playerId);
+            statement.setString(2, question);
+            statement.setString(3, response);
+            statement.setString(4, Instant.now().toString());
+            statement.executeUpdate();
+
+            try (ResultSet keys = statement.getGeneratedKeys()) {
+                if (keys.next()) {
+                    return keys.getLong(1);
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to record interaction player={}", playerId, exception);
+        }
+
+        return -1L;
+    }
+
+    public List<InteractionRecord> loadRecentInteractions(int limit) {
+        int safeLimit = Math.max(1, Math.min(50, limit));
+        String sql = """
+            SELECT id, player_id, question, response, created_at
+            FROM interactions
+            ORDER BY id DESC
+            LIMIT ?
+            """;
+
+        List<InteractionRecord> records = new ArrayList<>();
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, safeLimit);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    records.add(new InteractionRecord(
+                        resultSet.getLong("id"),
+                        resultSet.getString("player_id"),
+                        resultSet.getString("question"),
+                        resultSet.getString("response"),
+                        resultSet.getString("created_at")
+                    ));
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load recent interactions", exception);
+        }
+
+        return records;
+    }
 
     public long enqueueAe2CraftRequest(String itemId, int quantity, String requestedBy) {
         String sql = "INSERT INTO ae2_craft_requests(item_id, quantity, status, requested_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)";
@@ -340,6 +394,15 @@ public final class BotMemoryRepository {
             );
 
             statement.execute(
+                "CREATE TABLE IF NOT EXISTS interactions (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "player_id TEXT NOT NULL," +
+                    "question TEXT NOT NULL," +
+                    "response TEXT NOT NULL," +
+                    "created_at TEXT NOT NULL" +
+                    ")"
+            );
+            statement.execute(
                 "CREATE TABLE IF NOT EXISTS ae2_craft_requests (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                     "item_id TEXT NOT NULL," +
@@ -376,6 +439,15 @@ public final class BotMemoryRepository {
         String requestedBy,
         String createdAt,
         String updatedAt
+    ) {
+    }
+
+    public record InteractionRecord(
+        long id,
+        String playerId,
+        String question,
+        String response,
+        String createdAt
     ) {
     }
 

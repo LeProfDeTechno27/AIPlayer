@@ -105,6 +105,18 @@ public final class AIPlayerRuntime {
     public int countOpenBotTasks() {
         return this.memoryRepository.countOpenBotTasks();
     }
+    public long askBot(String playerId, String question) {
+        String response = "Question recue: " + question + " | objectif courant=" + this.currentObjective;
+        long interactionId = this.memoryRepository.recordInteraction(playerId, question, response);
+        if (interactionId > 0) {
+            this.memoryRepository.recordAction("bot-ask", "id=" + interactionId + " player=" + playerId);
+        }
+        return interactionId;
+    }
+
+    public List<BotMemoryRepository.InteractionRecord> getRecentInteractions(int limit) {
+        return this.memoryRepository.loadRecentInteractions(limit);
+    }
 
     public boolean isMineColoniesAvailable() {
         return this.mineColoniesBridge.isAvailable();
