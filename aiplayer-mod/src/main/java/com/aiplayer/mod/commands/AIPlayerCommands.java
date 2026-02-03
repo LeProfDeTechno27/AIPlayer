@@ -85,6 +85,13 @@ public final class AIPlayerCommands {
                                 runtime,
                                 IntegerArgumentType.getInteger(context, "id")
                             ))))
+                    .then(Commands.literal("info")
+                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                            .executes(context -> botTaskInfo(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "id")
+                            ))))
                     .then(Commands.argument("objective", StringArgumentType.greedyString())
                         .executes(context -> botTask(
                             context.getSource(),
@@ -362,6 +369,28 @@ public final class AIPlayerCommands {
     private static int botTasksPrune(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
         int deleted = runtime.pruneClosedBotTasks(limit);
         source.sendSuccess(() -> Component.literal("Bot tasks prune deleted=" + deleted + " limit=" + limit), false);
+        return 1;
+    }
+
+    private static int botTaskInfo(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
+        Optional<BotMemoryRepository.BotTask> taskOptional = runtime.getBotTaskById(taskId);
+        if (taskOptional.isEmpty()) {
+            source.sendFailure(Component.literal("Bot task introuvable: id=" + taskId));
+            return 0;
+        }
+
+        BotMemoryRepository.BotTask task = taskOptional.get();
+        source.sendSuccess(
+            () -> Component.literal(
+                "Bot task #" + task.id()
+                    + " status=" + task.status()
+                    + " objective=" + task.objective()
+                    + " requestedBy=" + task.requestedBy()
+                    + " createdAt=" + task.createdAt()
+                    + " updatedAt=" + task.updatedAt()
+            ),
+            false
+        );
         return 1;
     }
     private static int botTaskDone(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
