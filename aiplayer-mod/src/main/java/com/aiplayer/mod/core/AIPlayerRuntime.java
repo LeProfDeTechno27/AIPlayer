@@ -101,8 +101,24 @@ public final class AIPlayerRuntime {
         return this.memoryRepository.loadOpenBotTasks(limit);
     }
 
+    public List<BotMemoryRepository.BotTask> getBotTasks(int limit, boolean includeClosed) {
+        return includeClosed ? this.memoryRepository.loadBotTasks(limit) : this.memoryRepository.loadOpenBotTasks(limit);
+    }
+
     public int countOpenBotTasks() {
         return this.memoryRepository.countOpenBotTasks();
+    }
+
+    public int countBotTasks(boolean includeClosed) {
+        return includeClosed ? this.memoryRepository.countBotTasks() : this.memoryRepository.countOpenBotTasks();
+    }
+
+    public List<BotMemoryRepository.BotTask> getBotTasksByStatus(String status, int limit) {
+        return this.memoryRepository.loadBotTasksByStatus(status, limit);
+    }
+
+    public int countBotTasksByStatus(String status) {
+        return this.memoryRepository.countBotTasksByStatus(status);
     }
     public boolean markBotTaskDone(long taskId) {
         boolean updated = this.memoryRepository.updateBotTaskStatus(taskId, "DONE");

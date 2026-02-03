@@ -143,6 +143,74 @@ public final class BotMemoryRepository {
         return tasks;
     }
 
+    
+    public List<BotTask> loadBotTasks(int limit) {
+        int safeLimit = Math.max(1, Math.min(100, limit));
+        String sql = """
+            SELECT id, objective, status, requested_by, created_at, updated_at
+            FROM bot_tasks
+            ORDER BY id DESC
+            LIMIT ?
+            """;
+
+        List<BotTask> tasks = new ArrayList<>();
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, safeLimit);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    tasks.add(new BotTask(
+                        resultSet.getLong("id"),
+                        resultSet.getString("objective"),
+                        resultSet.getString("status"),
+                        resultSet.getString("requested_by"),
+                        resultSet.getString("created_at"),
+                        resultSet.getString("updated_at")
+                    ));
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load bot tasks", exception);
+        }
+
+        return tasks;
+    }
+
+    public List<BotTask> loadBotTasksByStatus(String status, int limit) {
+        int safeLimit = Math.max(1, Math.min(100, limit));
+        String sql = """
+            SELECT id, objective, status, requested_by, created_at, updated_at
+            FROM bot_tasks
+            WHERE status = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """;
+
+        List<BotTask> tasks = new ArrayList<>();
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, status);
+            statement.setInt(2, safeLimit);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    tasks.add(new BotTask(
+                        resultSet.getLong("id"),
+                        resultSet.getString("objective"),
+                        resultSet.getString("status"),
+                        resultSet.getString("requested_by"),
+                        resultSet.getString("created_at"),
+                        resultSet.getString("updated_at")
+                    ));
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load bot tasks by status={}", status, exception);
+        }
+
+        return tasks;
+    }
     public Optional<BotTask> loadCurrentBotTask() {
         String sql = """
             SELECT id, objective, status, requested_by, created_at, updated_at
@@ -188,6 +256,40 @@ public final class BotMemoryRepository {
         return 0;
     }
 
+    
+    public int countBotTasks() {
+        String sql = "SELECT COUNT(*) AS count FROM bot_tasks";
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet resultSet = statement.executeQuery()) {
+            if (resultSet.next()) {
+                return resultSet.getInt("count");
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to count bot tasks", exception);
+        }
+
+        return 0;
+    }
+
+    public int countBotTasksByStatus(String status) {
+        String sql = "SELECT COUNT(*) AS count FROM bot_tasks WHERE status = ?";
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, status);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return resultSet.getInt("count");
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to count bot tasks by status={}", status, exception);
+        }
+
+        return 0;
+    }
     public boolean updateBotTaskStatus(long taskId, String status) {
         String sql = """
             UPDATE bot_tasks
