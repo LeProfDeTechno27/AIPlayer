@@ -120,6 +120,14 @@ public final class AIPlayerRuntime {
     public int countBotTasksByStatus(String status) {
         return this.memoryRepository.countBotTasksByStatus(status);
     }
+
+    public int pruneClosedBotTasks(int limit) {
+        int deleted = this.memoryRepository.deleteClosedBotTasks(limit);
+        if (deleted > 0) {
+            this.memoryRepository.recordAction("bot-task-prune", "deleted=" + deleted + " limit=" + limit);
+        }
+        return deleted;
+    }
     public boolean markBotTaskDone(long taskId) {
         boolean updated = this.memoryRepository.updateBotTaskStatus(taskId, "DONE");
         if (updated) {

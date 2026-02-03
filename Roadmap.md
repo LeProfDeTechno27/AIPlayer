@@ -660,3 +660,4 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Plan appliqué (Sprint 1): commande `/bot task reopen <id>` pour remettre une tâche en PENDING.
 - [x] Plan appliqué (Sprint 1): commande `/bot tasks all [limit]` pour consulter l'historique complet des tâches.
 - [x] Plan appliqué (Sprint 1): commande `/bot tasks status <status> [limit]` pour filtrer les tâches par état.
+- [x] Plan appliqué (Sprint 1): commande `/bot tasks prune [limit]` pour nettoyer les tâches fermées.

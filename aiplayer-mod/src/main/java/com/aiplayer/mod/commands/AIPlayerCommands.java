@@ -28,6 +28,7 @@ public final class AIPlayerCommands {
     private static final int DEFAULT_AE2_CRAFT_QUANTITY = 1;
     private static final int DEFAULT_AE2_QUEUE_LIMIT = 10;
     private static final int DEFAULT_BOT_TASK_LIST_LIMIT = 5;
+    private static final int DEFAULT_BOT_TASK_PRUNE_LIMIT = 20;
     private static final int DEFAULT_BOT_INTERACTION_LIST_LIMIT = 5;
 
     private static final List<String> BOT_TASK_STATUS_SUGGESTIONS = List.of("PENDING", "ACTIVE", "DONE", "CANCELED");
@@ -117,6 +118,14 @@ public final class AIPlayerCommands {
                                     StringArgumentType.getString(context, "status"),
                                     IntegerArgumentType.getInteger(context, "limit")
                                 )))))
+                    .then(Commands.literal("prune")
+                        .executes(context -> botTasksPrune(context.getSource(), runtime, DEFAULT_BOT_TASK_PRUNE_LIMIT))
+                        .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                            .executes(context -> botTasksPrune(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "limit")
+                            ))))
                     .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
                         .executes(context -> botTasks(
                             context.getSource(),
@@ -347,6 +356,12 @@ public final class AIPlayerCommands {
         StringJoiner joiner = new StringJoiner(" | ");
         tasks.forEach(task -> joiner.add("#" + task.id() + " " + task.status() + " " + task.objective()));
         source.sendSuccess(() -> Component.literal("Bot tasks status=" + status + " total=" + total + " -> " + joiner), false);
+        return 1;
+    }
+
+    private static int botTasksPrune(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        int deleted = runtime.pruneClosedBotTasks(limit);
+        source.sendSuccess(() -> Component.literal("Bot tasks prune deleted=" + deleted + " limit=" + limit), false);
         return 1;
     }
     private static int botTaskDone(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
