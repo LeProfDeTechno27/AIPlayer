@@ -635,7 +635,7 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Ollama tested locally (Qwen3:8b)
 - [x] MineColonies API study (owner assignment feasibility)
 - [x] AE2 API access confirmed
-- [ ] CC peripheral interface documented
+- [x] CC peripheral interface documented
 - [ ] 6c/24GB server ready
 
 **Go?** ✅ Start Sprint 1 → Bot becomes Town Hall Owner

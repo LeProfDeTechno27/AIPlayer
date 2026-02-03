@@ -40,3 +40,8 @@ Persisted tables:
 - `bot_state`
 - `bot_actions`
 - `ae2_craft_requests`
+## ComputerCraft
+
+Documentation de l'interface peripherals/turtles:
+
+- `docs/computercraft-peripheral-interface.md`
