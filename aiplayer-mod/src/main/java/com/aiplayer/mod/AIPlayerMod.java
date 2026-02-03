@@ -16,6 +16,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
 
 @Mod(ModMetadata.MOD_ID)
 public class AIPlayerMod {
@@ -27,6 +30,7 @@ public class AIPlayerMod {
     public AIPlayerMod() {
         this.moduleManager = new ModuleManager();
         registerDefaultModules();
+        applyEnabledModulesOverride();
 
         BotMemoryRepository memoryRepository = new BotMemoryRepository(Path.of("aiplayer", "bot-memory.db"));
         memoryRepository.initializeSchema();
@@ -50,5 +54,26 @@ public class AIPlayerMod {
         this.moduleManager.register(new AE2Module());
         this.moduleManager.register(new ComputerCraftModule());
         this.moduleManager.register(new CreateModule());
+    }
+
+    private void applyEnabledModulesOverride() {
+        String rawValue = System.getenv("AIPLAYER_ENABLED_MODULES");
+        if (rawValue == null || rawValue.isBlank()) {
+            return;
+        }
+
+        List<String> modules = Arrays.stream(rawValue.split(","))
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .map(value -> value.toLowerCase(Locale.ROOT))
+            .toList();
+
+        if (modules.isEmpty()) {
+            LOGGER.warn("AIPLAYER_ENABLED_MODULES is set but empty after parsing: '{}'", rawValue);
+            return;
+        }
+
+        this.moduleManager.setEnabledModules(modules);
+        LOGGER.info("Enabled modules override applied: {}", this.moduleManager.getEnabledModuleNames());
     }
 }
