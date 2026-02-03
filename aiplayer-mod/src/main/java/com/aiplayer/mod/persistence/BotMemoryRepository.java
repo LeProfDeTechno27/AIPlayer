@@ -211,6 +211,36 @@ public final class BotMemoryRepository {
 
         return tasks;
     }
+
+    public Optional<BotTask> loadBotTaskById(long taskId) {
+        String sql = """
+            SELECT id, objective, status, requested_by, created_at, updated_at
+            FROM bot_tasks
+            WHERE id = ?
+            LIMIT 1
+            """;
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, taskId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return Optional.of(new BotTask(
+                        resultSet.getLong("id"),
+                        resultSet.getString("objective"),
+                        resultSet.getString("status"),
+                        resultSet.getString("requested_by"),
+                        resultSet.getString("created_at"),
+                        resultSet.getString("updated_at")
+                    ));
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load bot task by id={}", taskId, exception);
+        }
+
+        return Optional.empty();
+    }
     public Optional<BotTask> loadCurrentBotTask() {
         String sql = """
             SELECT id, objective, status, requested_by, created_at, updated_at

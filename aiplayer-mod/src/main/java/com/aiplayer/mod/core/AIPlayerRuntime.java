@@ -121,6 +121,10 @@ public final class AIPlayerRuntime {
         return this.memoryRepository.countBotTasksByStatus(status);
     }
 
+    public Optional<BotMemoryRepository.BotTask> getBotTaskById(long taskId) {
+        return this.memoryRepository.loadBotTaskById(taskId);
+    }
+
     public int pruneClosedBotTasks(int limit) {
         int deleted = this.memoryRepository.deleteClosedBotTasks(limit);
         if (deleted > 0) {
