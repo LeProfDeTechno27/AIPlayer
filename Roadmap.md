@@ -25,7 +25,7 @@
 - [x] Mods serveur inventoriés (`Ressource minecraft/mods`): 421 jars, incluant MineColonies, AE2, CC-Tweaked, Create.
 - [x] MineColonies owner programmatique: partiel (API reflective OK pour assigner un `ServerPlayer` via `setOwner(Player)`; owner bot entite non joueur non supporte a ce stade).
 - [x] AE2 API (grids/channels/crafting): partiel. Probe classes + scan blocs + queue craft locale OK; pilotage direct IGrid/channels/ICraftingService non implemente.
-- [ ] ComputerCraft : bot peut-il écrire/exécuter Lua scripts ?
+- [x] ComputerCraft : non a ce stade. Module placeholder present, mais aucun bridge CC-Tweaked/API peripheral ni ecriture/execution Lua implementee.
 - [ ] Identifier autres mods intéressants pour phases futures
 
 #### 1.2 Architecture système (PluginBase)
