@@ -132,6 +132,15 @@ public final class AIPlayerRuntime {
         }
         return deleted;
     }
+
+    public boolean updateBotTaskObjective(long taskId, String objective) {
+        boolean updated = this.memoryRepository.updateBotTaskObjective(taskId, objective);
+        if (updated) {
+            this.memoryRepository.recordAction("bot-task-update", "id=" + taskId + " objective=" + objective);
+            this.currentObjective = this.memoryRepository.loadCurrentBotTask().map(BotMemoryRepository.BotTask::objective).orElse("none");
+        }
+        return updated;
+    }
     public boolean markBotTaskDone(long taskId) {
         boolean updated = this.memoryRepository.updateBotTaskStatus(taskId, "DONE");
         if (updated) {

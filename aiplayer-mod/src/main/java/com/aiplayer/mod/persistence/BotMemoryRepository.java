@@ -344,6 +344,26 @@ public final class BotMemoryRepository {
 
         return 0;
     }
+
+    public boolean updateBotTaskObjective(long taskId, String objective) {
+        String sql = """
+            UPDATE bot_tasks
+            SET objective = ?, updated_at = ?
+            WHERE id = ?
+            """;
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, objective);
+            statement.setString(2, Instant.now().toString());
+            statement.setLong(3, taskId);
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to update bot task objective id={}", taskId, exception);
+        }
+
+        return false;
+    }
     public boolean updateBotTaskStatus(long taskId, String status) {
         String sql = """
             UPDATE bot_tasks

@@ -662,3 +662,4 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Plan appliqué (Sprint 1): commande `/bot tasks status <status> [limit]` pour filtrer les tâches par état.
 - [x] Plan appliqué (Sprint 1): commande `/bot tasks prune [limit]` pour nettoyer les tâches fermées.
 - [x] Plan appliqué (Sprint 1): commande `/bot task info <id>` pour inspecter une tâche précise.
+- [x] Plan appliqué (Sprint 1): commande `/bot task update <id> <objective>` pour corriger un objectif en cours.
