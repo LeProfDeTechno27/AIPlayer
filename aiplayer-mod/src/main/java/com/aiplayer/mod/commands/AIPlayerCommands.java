@@ -71,6 +71,13 @@ public final class AIPlayerCommands {
                                 runtime,
                                 IntegerArgumentType.getInteger(context, "id")
                             ))))
+                    .then(Commands.literal("start")
+                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                            .executes(context -> botTaskStart(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "id")
+                            ))))
                     .then(Commands.literal("cancel")
                         .then(Commands.argument("id", IntegerArgumentType.integer(1))
                             .executes(context -> botTaskCancel(
@@ -450,6 +457,17 @@ public final class AIPlayerCommands {
         }
 
         source.sendSuccess(() -> Component.literal("Bot task PENDING id=" + taskId), false);
+        return 1;
+    }
+
+    private static int botTaskStart(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
+        boolean updated = runtime.startBotTask(taskId);
+        if (!updated) {
+            source.sendFailure(Component.literal("Bot task introuvable: id=" + taskId));
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.literal("Bot task ACTIVE id=" + taskId), false);
         return 1;
     }
     private static int botTaskCancel(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
