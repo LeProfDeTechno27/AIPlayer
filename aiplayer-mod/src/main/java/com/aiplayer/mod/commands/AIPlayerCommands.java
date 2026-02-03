@@ -27,6 +27,7 @@ public final class AIPlayerCommands {
     private static final int DEFAULT_AE2_CRAFT_QUANTITY = 1;
     private static final int DEFAULT_AE2_QUEUE_LIMIT = 10;
     private static final int DEFAULT_BOT_TASK_LIST_LIMIT = 5;
+    private static final int DEFAULT_BOT_INTERACTION_LIST_LIMIT = 5;
 
     private static final List<String> COLONY_STYLE_SUGGESTIONS = List.of(
         "medievaloak",
@@ -69,6 +70,21 @@ public final class AIPlayerCommands {
                     .executes(context -> botTasks(context.getSource(), runtime, DEFAULT_BOT_TASK_LIST_LIMIT))
                     .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
                         .executes(context -> botTasks(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "limit")
+                        ))))
+                .then(Commands.literal("ask")
+                    .then(Commands.argument("question", StringArgumentType.greedyString())
+                        .executes(context -> botAsk(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "question")
+                        ))))
+                .then(Commands.literal("interactions")
+                    .executes(context -> botInteractions(context.getSource(), runtime, DEFAULT_BOT_INTERACTION_LIST_LIMIT))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
+                        .executes(context -> botInteractions(
                             context.getSource(),
                             runtime,
                             IntegerArgumentType.getInteger(context, "limit")
@@ -256,6 +272,31 @@ public final class AIPlayerCommands {
         StringJoiner joiner = new StringJoiner(" | ");
         tasks.forEach(task -> joiner.add("#" + task.id() + " " + task.status() + " " + task.objective()));
         source.sendSuccess(() -> Component.literal("Bot tasks open=" + total + " -> " + joiner), false);
+        return 1;
+    }
+
+    private static int botAsk(CommandSourceStack source, AIPlayerRuntime runtime, String question) {
+        String playerId = source.getTextName();
+        long interactionId = runtime.askBot(playerId, question);
+        if (interactionId <= 0) {
+            source.sendFailure(Component.literal("Impossible d'enregistrer l'interaction bot"));
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.literal("Bot ask logged id=" + interactionId + " question=" + question), false);
+        return 1;
+    }
+
+    private static int botInteractions(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        List<BotMemoryRepository.InteractionRecord> records = runtime.getRecentInteractions(limit);
+        if (records.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("Bot interactions: none"), false);
+            return 1;
+        }
+
+        StringJoiner joiner = new StringJoiner(" | ");
+        records.forEach(record -> joiner.add("#" + record.id() + " " + record.playerId() + ": " + record.question()));
+        source.sendSuccess(() -> Component.literal("Bot interactions -> " + joiner), false);
         return 1;
     }
 
