@@ -1,4 +1,4 @@
-# AIPlayer Mod (Sprint 1 scaffold)
+# AIPlayer Mod (Sprint 1-2 baseline)
 
 ## Build (validation image)
 
@@ -23,6 +23,8 @@ docker build -f docker/mod-build-check.Dockerfile -t aiplayer-mod-check .
 - `/aiplayer colony create <name> <style>`
 - `/aiplayer colony claim`
 - `/aiplayer colony recruit <count>`
+- `/aiplayer ae2 status [radius]`
+- `/aiplayer ae2 suggest [radius]`
 
 ## Persistence SQLite
 

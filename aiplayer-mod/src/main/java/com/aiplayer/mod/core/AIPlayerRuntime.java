@@ -1,5 +1,6 @@
 package com.aiplayer.mod.core;
 
+import com.aiplayer.mod.integrations.AE2Bridge;
 import com.aiplayer.mod.integrations.MineColoniesBridge;
 import com.aiplayer.mod.persistence.BotMemoryRepository;
 import net.minecraft.network.chat.Component;
@@ -20,6 +21,7 @@ public final class AIPlayerRuntime {
     private final ModuleManager moduleManager;
     private final BotMemoryRepository memoryRepository;
     private final MineColoniesBridge mineColoniesBridge;
+    private final AE2Bridge ae2Bridge;
 
     private String phase;
     private UUID botMarkerEntityId;
@@ -28,6 +30,7 @@ public final class AIPlayerRuntime {
         this.moduleManager = moduleManager;
         this.memoryRepository = memoryRepository;
         this.mineColoniesBridge = new MineColoniesBridge();
+        this.ae2Bridge = new AE2Bridge();
         this.phase = this.memoryRepository.loadCurrentPhase().orElse("bootstrap");
     }
 
@@ -108,6 +111,16 @@ public final class AIPlayerRuntime {
     public MineColoniesBridge.BridgeResult recruitMineColoniesCitizens(ServerPlayer owner, int recruitCount) {
         MineColoniesBridge.BridgeResult result = this.mineColoniesBridge.recruitOwnedColony(owner, recruitCount);
         this.memoryRepository.recordAction("minecolonies-recruit", result.message());
+        return result;
+    }
+
+    public boolean isAe2Available() {
+        return this.ae2Bridge.isAvailable();
+    }
+
+    public AE2Bridge.AE2ScanResult scanAe2(ServerPlayer player, int radius) {
+        AE2Bridge.AE2ScanResult result = this.ae2Bridge.scan(player.serverLevel(), player.blockPosition(), radius);
+        this.memoryRepository.recordAction("ae2-scan", result.summary());
         return result;
     }
 

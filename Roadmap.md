@@ -649,4 +649,5 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Mod aiplayer build OK in Docker (docker/mod-build-check.Dockerfile)
 - [x] Sprint 1 base: runtime, /aiplayer commands, SQLite persistence
 - [x] MineColonies owner bridge integrated (create/claim/recruit commands)
-- [x] Next step: real MineColonies owner integration
+- [x] AE2 baseline integrated (scan/status/suggest commands)
+- [ ] Next step: AE2 autocrafting request pipeline
