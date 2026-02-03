@@ -11,6 +11,9 @@ docker build -f docker/mod-build-check.Dockerfile -t aiplayer-mod-check .
 ## Commandes serveur
 
 - `/bot spawn [name]`
+- `/bot status`
+- `/bot task <objective>`
+- `/bot tasks [limit]`
 - `/aiplayer status`
 - `/aiplayer spawn`
 - `/aiplayer despawn`
@@ -40,6 +43,7 @@ Persisted tables:
 
 - `bot_state`
 - `bot_actions`
+- `bot_tasks`
 - `ae2_craft_requests`
 
 ## ComputerCraft

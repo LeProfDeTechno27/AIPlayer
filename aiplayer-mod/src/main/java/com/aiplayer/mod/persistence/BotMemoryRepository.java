@@ -84,6 +84,130 @@ public final class BotMemoryRepository {
         }
     }
 
+    public long enqueueBotTask(String objective, String requestedBy) {
+        String sql = "INSERT INTO bot_tasks(objective, status, requested_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?)";
+        String now = Instant.now().toString();
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            statement.setString(1, objective);
+            statement.setString(2, "PENDING");
+            statement.setString(3, requestedBy);
+            statement.setString(4, now);
+            statement.setString(5, now);
+            statement.executeUpdate();
+
+            try (ResultSet keys = statement.getGeneratedKeys()) {
+                if (keys.next()) {
+                    return keys.getLong(1);
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to enqueue bot task objective={}", objective, exception);
+        }
+
+        return -1L;
+    }
+
+    public List<BotTask> loadOpenBotTasks(int limit) {
+        int safeLimit = Math.max(1, Math.min(100, limit));
+        String sql = """
+            SELECT id, objective, status, requested_by, created_at, updated_at
+            FROM bot_tasks
+            WHERE status IN ('PENDING','ACTIVE')
+            ORDER BY id ASC
+            LIMIT ?
+            """;
+
+        List<BotTask> tasks = new ArrayList<>();
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, safeLimit);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    tasks.add(new BotTask(
+                        resultSet.getLong("id"),
+                        resultSet.getString("objective"),
+                        resultSet.getString("status"),
+                        resultSet.getString("requested_by"),
+                        resultSet.getString("created_at"),
+                        resultSet.getString("updated_at")
+                    ));
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load open bot tasks", exception);
+        }
+
+        return tasks;
+    }
+
+    public Optional<BotTask> loadCurrentBotTask() {
+        String sql = """
+            SELECT id, objective, status, requested_by, created_at, updated_at
+            FROM bot_tasks
+            WHERE status IN ('PENDING','ACTIVE')
+            ORDER BY id ASC
+            LIMIT 1
+            """;
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet resultSet = statement.executeQuery()) {
+            if (resultSet.next()) {
+                return Optional.of(new BotTask(
+                    resultSet.getLong("id"),
+                    resultSet.getString("objective"),
+                    resultSet.getString("status"),
+                    resultSet.getString("requested_by"),
+                    resultSet.getString("created_at"),
+                    resultSet.getString("updated_at")
+                ));
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load current bot task", exception);
+        }
+
+        return Optional.empty();
+    }
+
+    public int countOpenBotTasks() {
+        String sql = "SELECT COUNT(*) AS count FROM bot_tasks WHERE status IN ('PENDING','ACTIVE')";
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet resultSet = statement.executeQuery()) {
+            if (resultSet.next()) {
+                return resultSet.getInt("count");
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to count open bot tasks", exception);
+        }
+
+        return 0;
+    }
+
+    public boolean updateBotTaskStatus(long taskId, String status) {
+        String sql = """
+            UPDATE bot_tasks
+            SET status = ?, updated_at = ?
+            WHERE id = ?
+            """;
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, status);
+            statement.setString(2, Instant.now().toString());
+            statement.setLong(3, taskId);
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to update bot task id={} status={}", taskId, status, exception);
+        }
+
+        return false;
+    }
+
     public long enqueueAe2CraftRequest(String itemId, int quantity, String requestedBy) {
         String sql = "INSERT INTO ae2_craft_requests(item_id, quantity, status, requested_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)";
         String now = Instant.now().toString();
@@ -205,6 +329,17 @@ public final class BotMemoryRepository {
             );
 
             statement.execute(
+                "CREATE TABLE IF NOT EXISTS bot_tasks (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "objective TEXT NOT NULL," +
+                    "status TEXT NOT NULL," +
+                    "requested_by TEXT NOT NULL," +
+                    "created_at TEXT NOT NULL," +
+                    "updated_at TEXT NOT NULL" +
+                    ")"
+            );
+
+            statement.execute(
                 "CREATE TABLE IF NOT EXISTS ae2_craft_requests (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT," +
                     "item_id TEXT NOT NULL," +
@@ -232,6 +367,16 @@ public final class BotMemoryRepository {
                 throw new IllegalStateException("Unable to create database directory", exception);
             }
         }
+    }
+
+    public record BotTask(
+        long id,
+        String objective,
+        String status,
+        String requestedBy,
+        String createdAt,
+        String updatedAt
+    ) {
     }
 
     public record AE2CraftRequest(

@@ -26,6 +26,7 @@ public final class AIPlayerCommands {
     private static final int DEFAULT_AE2_RADIUS = 12;
     private static final int DEFAULT_AE2_CRAFT_QUANTITY = 1;
     private static final int DEFAULT_AE2_QUEUE_LIMIT = 10;
+    private static final int DEFAULT_BOT_TASK_LIST_LIMIT = 5;
 
     private static final List<String> COLONY_STYLE_SUGGESTIONS = List.of(
         "medievaloak",
@@ -57,6 +58,21 @@ public final class AIPlayerCommands {
                     .executes(context -> spawnMarkerNamed(context.getSource(), runtime, "AIPlayer Bot")))
                 .then(Commands.literal("status")
                     .executes(context -> showStatus(context.getSource(), runtime)))
+                .then(Commands.literal("task")
+                    .then(Commands.argument("objective", StringArgumentType.greedyString())
+                        .executes(context -> botTask(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "objective")
+                        ))))
+                .then(Commands.literal("tasks")
+                    .executes(context -> botTasks(context.getSource(), runtime, DEFAULT_BOT_TASK_LIST_LIMIT))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
+                        .executes(context -> botTasks(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "limit")
+                        ))))
         );
 
         dispatcher.register(
@@ -157,7 +173,12 @@ public final class AIPlayerCommands {
         runtime.getEnabledModules().forEach(joiner::add);
 
         source.sendSuccess(
-            () -> Component.literal("phase=" + runtime.getPhase() + " | modules=" + joiner),
+            () -> Component.literal(
+                "phase=" + runtime.getPhase()
+                    + " | objective=" + runtime.getCurrentObjective()
+                    + " | botTasks=" + runtime.countOpenBotTasks()
+                    + " | modules=" + joiner
+            ),
             false
         );
         return 1;
@@ -205,6 +226,36 @@ public final class AIPlayerCommands {
     private static int setPhase(CommandSourceStack source, AIPlayerRuntime runtime, String phase) {
         runtime.setPhase(phase);
         source.sendSuccess(() -> Component.literal("Phase set to " + phase), false);
+        return 1;
+    }
+
+    private static int botTask(CommandSourceStack source, AIPlayerRuntime runtime, String objective) {
+        String requestedBy = source.getTextName();
+        long taskId = runtime.queueBotTask(objective, requestedBy);
+        if (taskId <= 0) {
+            source.sendFailure(Component.literal("Impossible de creer la tache bot"));
+            return 0;
+        }
+
+        source.sendSuccess(
+            () -> Component.literal("Bot task queued id=" + taskId + " objective=" + objective),
+            false
+        );
+        return 1;
+    }
+
+    private static int botTasks(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        List<BotMemoryRepository.BotTask> tasks = runtime.getOpenBotTasks(limit);
+        int total = runtime.countOpenBotTasks();
+
+        if (tasks.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("Bot tasks: none (open=" + total + ")"), false);
+            return 1;
+        }
+
+        StringJoiner joiner = new StringJoiner(" | ");
+        tasks.forEach(task -> joiner.add("#" + task.id() + " " + task.status() + " " + task.objective()));
+        source.sendSuccess(() -> Component.literal("Bot tasks open=" + total + " -> " + joiner), false);
         return 1;
     }
 
