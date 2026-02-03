@@ -15,6 +15,7 @@ docker build -f docker/mod-build-check.Dockerfile -t aiplayer-mod-check .
 - `/bot task <objective>`
 - `/bot task done <id>`
 - `/bot task cancel <id>`
+- `/bot task reopen <id>`
 - `/bot tasks [limit]`
 - `/bot ask <question>`
 - `/bot interactions [limit]`
@@ -63,4 +64,5 @@ Documentation de l'interface peripherals/turtles:
 
 ## Task Lifecycle
 
-- Cycle simple: PENDING -> ACTIVE -> DONE à chaque /aiplayer tick.
+- Cycle simple: PENDING -> ACTIVE -> DONE Ã  chaque /aiplayer tick.
+- Override manuel: /bot task done|cancel|reopen <id>.

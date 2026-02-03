@@ -60,6 +60,27 @@ public final class AIPlayerCommands {
                 .then(Commands.literal("status")
                     .executes(context -> showStatus(context.getSource(), runtime)))
                 .then(Commands.literal("task")
+                    .then(Commands.literal("done")
+                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                            .executes(context -> botTaskDone(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "id")
+                            ))))
+                    .then(Commands.literal("cancel")
+                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                            .executes(context -> botTaskCancel(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "id")
+                            ))))
+                    .then(Commands.literal("reopen")
+                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                            .executes(context -> botTaskReopen(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "id")
+                            ))))
                     .then(Commands.argument("objective", StringArgumentType.greedyString())
                         .executes(context -> botTask(
                             context.getSource(),
@@ -272,6 +293,38 @@ public final class AIPlayerCommands {
         StringJoiner joiner = new StringJoiner(" | ");
         tasks.forEach(task -> joiner.add("#" + task.id() + " " + task.status() + " " + task.objective()));
         source.sendSuccess(() -> Component.literal("Bot tasks open=" + total + " -> " + joiner), false);
+        return 1;
+    }
+
+    private static int botTaskDone(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
+        boolean updated = runtime.markBotTaskDone(taskId);
+        if (!updated) {
+            source.sendFailure(Component.literal("Bot task introuvable: id=" + taskId));
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.literal("Bot task DONE id=" + taskId), false);
+        return 1;
+    }
+
+    private static int botTaskReopen(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
+        boolean updated = runtime.reopenBotTask(taskId);
+        if (!updated) {
+            source.sendFailure(Component.literal("Bot task introuvable: id=" + taskId));
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.literal("Bot task PENDING id=" + taskId), false);
+        return 1;
+    }
+    private static int botTaskCancel(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
+        boolean updated = runtime.cancelBotTask(taskId);
+        if (!updated) {
+            source.sendFailure(Component.literal("Bot task introuvable: id=" + taskId));
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.literal("Bot task CANCELED id=" + taskId), false);
         return 1;
     }
 
