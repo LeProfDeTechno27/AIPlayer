@@ -60,7 +60,7 @@ public final class AIPlayerRuntime {
 
     public void tickOnce() {
         this.moduleManager.tickEnabled();
-        refreshCurrentObjective();
+        processBotTaskLifecycle();
         processPendingAe2CraftRequests();
         this.memoryRepository.recordAction("tick", "ok");
     }
@@ -93,10 +93,6 @@ public final class AIPlayerRuntime {
         long taskId = this.memoryRepository.enqueueBotTask(objective, requestedBy);
         if (taskId > 0) {
             this.memoryRepository.recordAction("bot-task-enqueue", "id=" + taskId + " by=" + requestedBy + " objective=" + objective);
-            if ("none".equals(this.currentObjective)) {
-                this.currentObjective = objective;
-                this.memoryRepository.updateBotTaskStatus(taskId, "ACTIVE");
-            }
         }
         return taskId;
     }
@@ -108,6 +104,7 @@ public final class AIPlayerRuntime {
     public int countOpenBotTasks() {
         return this.memoryRepository.countOpenBotTasks();
     }
+
     public BotAskResult askBot(String playerId, String question) {
         String response = this.ollamaClient.ask(question, this.currentObjective)
             .orElse("(fallback) Objectif=" + this.currentObjective + ". Recoit ta question: " + question);
@@ -236,16 +233,43 @@ public final class AIPlayerRuntime {
         return getTrackedMarker(level) != null;
     }
 
-    private void refreshCurrentObjective() {
-        Optional<BotMemoryRepository.BotTask> current = this.memoryRepository.loadCurrentBotTask();
-        if (current.isPresent()) {
-            BotMemoryRepository.BotTask task = current.get();
-            this.currentObjective = task.objective();
-            if ("PENDING".equals(task.status())) {
-                this.memoryRepository.updateBotTaskStatus(task.id(), "ACTIVE");
-            }
-        } else {
+    private void processBotTaskLifecycle() {
+        Optional<BotMemoryRepository.BotTask> currentOptional = this.memoryRepository.loadCurrentBotTask();
+        if (currentOptional.isEmpty()) {
             this.currentObjective = "none";
+            return;
+        }
+
+        BotMemoryRepository.BotTask task = currentOptional.get();
+        this.currentObjective = task.objective();
+
+        if ("PENDING".equals(task.status())) {
+            boolean updated = this.memoryRepository.updateBotTaskStatus(task.id(), "ACTIVE");
+            if (updated) {
+                this.memoryRepository.recordAction("bot-task-active", "id=" + task.id() + " objective=" + task.objective());
+            }
+            return;
+        }
+
+        if ("ACTIVE".equals(task.status())) {
+            boolean updated = this.memoryRepository.updateBotTaskStatus(task.id(), "DONE");
+            if (updated) {
+                this.memoryRepository.recordAction("bot-task-done", "id=" + task.id() + " objective=" + task.objective());
+            }
+
+            Optional<BotMemoryRepository.BotTask> nextOptional = this.memoryRepository.loadCurrentBotTask();
+            if (nextOptional.isPresent()) {
+                BotMemoryRepository.BotTask next = nextOptional.get();
+                this.currentObjective = next.objective();
+                if ("PENDING".equals(next.status())) {
+                    boolean nextUpdated = this.memoryRepository.updateBotTaskStatus(next.id(), "ACTIVE");
+                    if (nextUpdated) {
+                        this.memoryRepository.recordAction("bot-task-active", "id=" + next.id() + " objective=" + next.objective());
+                    }
+                }
+            } else {
+                this.currentObjective = "none";
+            }
         }
     }
 
@@ -265,6 +289,7 @@ public final class AIPlayerRuntime {
 
     public record BotAskResult(long interactionId, String response) {
     }
+
     private String resolveOllamaUrl() {
         String env = System.getenv("AIPLAYER_OLLAMA_URL");
         return (env == null || env.isBlank()) ? "http://localhost:11434" : env.trim();
@@ -274,6 +299,7 @@ public final class AIPlayerRuntime {
         String env = System.getenv("AIPLAYER_OLLAMA_MODEL");
         return (env == null || env.isBlank()) ? "qwen3:8b" : env.trim();
     }
+
     private Entity getTrackedMarker(ServerLevel level) {
         if (this.botMarkerEntityId == null) {
             return null;

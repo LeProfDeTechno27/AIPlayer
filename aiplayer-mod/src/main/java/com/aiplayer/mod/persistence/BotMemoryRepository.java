@@ -148,7 +148,7 @@ public final class BotMemoryRepository {
             SELECT id, objective, status, requested_by, created_at, updated_at
             FROM bot_tasks
             WHERE status IN ('PENDING','ACTIVE')
-            ORDER BY id ASC
+            ORDER BY CASE status WHEN 'ACTIVE' THEN 0 ELSE 1 END, id ASC
             LIMIT 1
             """;
 
