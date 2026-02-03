@@ -1,5 +1,6 @@
 package com.aiplayer.mod.core;
 
+import com.aiplayer.mod.integrations.AE2Bridge;
 import com.aiplayer.mod.integrations.MineColoniesBridge;
 import com.aiplayer.mod.persistence.BotMemoryRepository;
 import net.minecraft.network.chat.Component;
@@ -16,10 +17,12 @@ import java.util.UUID;
 
 public final class AIPlayerRuntime {
     private static final String MARKER_TAG = "aiplayer_bot_marker";
+    private static final int AE2_QUEUE_BATCH_SIZE = 1;
 
     private final ModuleManager moduleManager;
     private final BotMemoryRepository memoryRepository;
     private final MineColoniesBridge mineColoniesBridge;
+    private final AE2Bridge ae2Bridge;
 
     private String phase;
     private UUID botMarkerEntityId;
@@ -28,6 +31,7 @@ public final class AIPlayerRuntime {
         this.moduleManager = moduleManager;
         this.memoryRepository = memoryRepository;
         this.mineColoniesBridge = new MineColoniesBridge();
+        this.ae2Bridge = new AE2Bridge();
         this.phase = this.memoryRepository.loadCurrentPhase().orElse("bootstrap");
     }
 
@@ -47,6 +51,7 @@ public final class AIPlayerRuntime {
 
     public void tickOnce() {
         this.moduleManager.tickEnabled();
+        processPendingAe2CraftRequests();
         this.memoryRepository.recordAction("tick", "ok");
     }
 
@@ -111,6 +116,35 @@ public final class AIPlayerRuntime {
         return result;
     }
 
+    public boolean isAe2Available() {
+        return this.ae2Bridge.isAvailable();
+    }
+
+    public AE2Bridge.AE2ScanResult scanAe2(ServerPlayer player, int radius) {
+        AE2Bridge.AE2ScanResult result = this.ae2Bridge.scan(player.serverLevel(), player.blockPosition(), radius);
+        this.memoryRepository.recordAction("ae2-scan", result.summary());
+        return result;
+    }
+
+    public long queueAe2CraftRequest(String itemId, int quantity, String requestedBy) {
+        long requestId = this.memoryRepository.enqueueAe2CraftRequest(itemId, quantity, requestedBy);
+        if (requestId > 0) {
+            this.memoryRepository.recordAction(
+                "ae2-craft-enqueue",
+                "id=" + requestId + " item=" + itemId + " qty=" + quantity + " by=" + requestedBy
+            );
+        }
+        return requestId;
+    }
+
+    public List<BotMemoryRepository.AE2CraftRequest> getPendingAe2CraftRequests(int limit) {
+        return this.memoryRepository.loadPendingAe2CraftRequests(limit);
+    }
+
+    public int countPendingAe2CraftRequests() {
+        return this.memoryRepository.countPendingAe2CraftRequests();
+    }
+
     public boolean spawnMarker(ServerLevel level, Vec3 position) {
         ArmorStand marker = EntityType.ARMOR_STAND.create(level);
         if (marker == null) {
@@ -147,6 +181,20 @@ public final class AIPlayerRuntime {
 
     public boolean isMarkerAlive(ServerLevel level) {
         return getTrackedMarker(level) != null;
+    }
+
+    private void processPendingAe2CraftRequests() {
+        if (!isAe2Available()) {
+            return;
+        }
+
+        for (BotMemoryRepository.AE2CraftRequest request : this.memoryRepository.loadPendingAe2CraftRequests(AE2_QUEUE_BATCH_SIZE)) {
+            String resultMessage = "Dispatched to AE2 pipeline item=" + request.itemId() + " qty=" + request.quantity();
+            boolean updated = this.memoryRepository.updateAe2CraftRequestStatus(request.id(), "DISPATCHED", resultMessage);
+            if (updated) {
+                this.memoryRepository.recordAction("ae2-craft-dispatch", "id=" + request.id() + " " + resultMessage);
+            }
+        }
     }
 
     private Entity getTrackedMarker(ServerLevel level) {

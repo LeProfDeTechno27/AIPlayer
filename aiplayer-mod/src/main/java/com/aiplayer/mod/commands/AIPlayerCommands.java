@@ -1,7 +1,9 @@
 package com.aiplayer.mod.commands;
 
 import com.aiplayer.mod.core.AIPlayerRuntime;
+import com.aiplayer.mod.integrations.AE2Bridge;
 import com.aiplayer.mod.integrations.MineColoniesBridge;
+import com.aiplayer.mod.persistence.BotMemoryRepository;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
@@ -20,6 +22,10 @@ public final class AIPlayerCommands {
     private static final String DEFAULT_COLONY_NAME = "aiplayer";
     private static final String DEFAULT_COLONY_STYLE = "medievaloak";
     private static final int DEFAULT_RECRUIT_COUNT = 3;
+
+    private static final int DEFAULT_AE2_RADIUS = 12;
+    private static final int DEFAULT_AE2_CRAFT_QUANTITY = 1;
+    private static final int DEFAULT_AE2_QUEUE_LIMIT = 10;
 
     private static final List<String> COLONY_STYLE_SUGGESTIONS = List.of(
         "medievaloak",
@@ -85,6 +91,46 @@ public final class AIPlayerCommands {
                                 context.getSource(),
                                 runtime,
                                 IntegerArgumentType.getInteger(context, "count")
+                            )))))
+                .then(Commands.literal("ae2")
+                    .then(Commands.literal("status")
+                        .executes(context -> ae2Status(context.getSource(), runtime, DEFAULT_AE2_RADIUS))
+                        .then(Commands.argument("radius", IntegerArgumentType.integer(2, 32))
+                            .executes(context -> ae2Status(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "radius")
+                            ))))
+                    .then(Commands.literal("suggest")
+                        .executes(context -> ae2Suggest(context.getSource(), runtime, DEFAULT_AE2_RADIUS))
+                        .then(Commands.argument("radius", IntegerArgumentType.integer(2, 32))
+                            .executes(context -> ae2Suggest(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "radius")
+                            ))))
+                    .then(Commands.literal("craft")
+                        .then(Commands.argument("itemId", StringArgumentType.word())
+                            .executes(context -> ae2Craft(
+                                context.getSource(),
+                                runtime,
+                                StringArgumentType.getString(context, "itemId"),
+                                DEFAULT_AE2_CRAFT_QUANTITY
+                            ))
+                            .then(Commands.argument("quantity", IntegerArgumentType.integer(1, 4096))
+                                .executes(context -> ae2Craft(
+                                    context.getSource(),
+                                    runtime,
+                                    StringArgumentType.getString(context, "itemId"),
+                                    IntegerArgumentType.getInteger(context, "quantity")
+                                )))))
+                    .then(Commands.literal("queue")
+                        .executes(context -> ae2Queue(context.getSource(), runtime, DEFAULT_AE2_QUEUE_LIMIT))
+                        .then(Commands.argument("limit", IntegerArgumentType.integer(1, 25))
+                            .executes(context -> ae2Queue(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "limit")
                             )))))
         );
     }
@@ -222,6 +268,81 @@ public final class AIPlayerCommands {
         ServerPlayer player = requirePlayer(source);
         MineColoniesBridge.BridgeResult result = runtime.recruitMineColoniesCitizens(player, recruitCount);
         return sendBridgeResult(source, result);
+    }
+
+    private static int ae2Status(CommandSourceStack source, AIPlayerRuntime runtime, int radius) throws CommandSyntaxException {
+        ServerPlayer player = requirePlayer(source);
+
+        if (!runtime.isAe2Available()) {
+            source.sendFailure(Component.literal("AE2 n'est pas charge"));
+            return 0;
+        }
+
+        AE2Bridge.AE2ScanResult scan = runtime.scanAe2(player, radius);
+        source.sendSuccess(
+            () -> Component.literal(
+                "AE2 " + scan.summary() + " radius=" + scan.radius()
+            ),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2Suggest(CommandSourceStack source, AIPlayerRuntime runtime, int radius) throws CommandSyntaxException {
+        ServerPlayer player = requirePlayer(source);
+
+        if (!runtime.isAe2Available()) {
+            source.sendFailure(Component.literal("AE2 n'est pas charge"));
+            return 0;
+        }
+
+        AE2Bridge.AE2ScanResult scan = runtime.scanAe2(player, radius);
+        source.sendSuccess(
+            () -> Component.literal("AE2 stage=" + scan.stage() + " -> " + scan.nextActionHint()),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2Craft(CommandSourceStack source, AIPlayerRuntime runtime, String itemId, int quantity)
+        throws CommandSyntaxException {
+        ServerPlayer player = requirePlayer(source);
+
+        if (!runtime.isAe2Available()) {
+            source.sendFailure(Component.literal("AE2 n'est pas charge"));
+            return 0;
+        }
+
+        long requestId = runtime.queueAe2CraftRequest(itemId, quantity, player.getGameProfile().getName());
+        if (requestId <= 0) {
+            source.sendFailure(Component.literal("Impossible de creer la requete AE2"));
+            return 0;
+        }
+
+        source.sendSuccess(
+            () -> Component.literal("AE2 request queued id=" + requestId + " item=" + itemId + " qty=" + quantity),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2Queue(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        List<BotMemoryRepository.AE2CraftRequest> requests = runtime.getPendingAe2CraftRequests(limit);
+        int pendingCount = runtime.countPendingAe2CraftRequests();
+
+        if (requests.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("AE2 queue vide (pending=" + pendingCount + ")"), false);
+            return 1;
+        }
+
+        StringJoiner joiner = new StringJoiner(" | ");
+        requests.forEach(request -> joiner.add("#" + request.id() + " " + request.itemId() + " x" + request.quantity()));
+
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue pending=" + pendingCount + " -> " + joiner),
+            false
+        );
+        return 1;
     }
 
     private static ServerPlayer requirePlayer(CommandSourceStack source) throws CommandSyntaxException {
