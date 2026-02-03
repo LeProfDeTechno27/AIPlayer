@@ -92,6 +92,15 @@ public final class AIPlayerCommands {
                                 runtime,
                                 IntegerArgumentType.getInteger(context, "id")
                             ))))
+                    .then(Commands.literal("update")
+                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                            .then(Commands.argument("objective", StringArgumentType.greedyString())
+                                .executes(context -> botTaskUpdate(
+                                    context.getSource(),
+                                    runtime,
+                                    IntegerArgumentType.getInteger(context, "id"),
+                                    StringArgumentType.getString(context, "objective")
+                                )))))
                     .then(Commands.argument("objective", StringArgumentType.greedyString())
                         .executes(context -> botTask(
                             context.getSource(),
@@ -391,6 +400,17 @@ public final class AIPlayerCommands {
             ),
             false
         );
+        return 1;
+    }
+
+    private static int botTaskUpdate(CommandSourceStack source, AIPlayerRuntime runtime, int taskId, String objective) {
+        boolean updated = runtime.updateBotTaskObjective(taskId, objective);
+        if (!updated) {
+            source.sendFailure(Component.literal("Bot task introuvable: id=" + taskId));
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.literal("Bot task UPDATED id=" + taskId + " objective=" + objective), false);
         return 1;
     }
     private static int botTaskDone(CommandSourceStack source, AIPlayerRuntime runtime, int taskId) {
