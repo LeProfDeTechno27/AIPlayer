@@ -53,3 +53,8 @@ Persisted tables:
 Documentation de l'interface peripherals/turtles:
 
 - `docs/computercraft-peripheral-interface.md`
+## Ollama
+
+- /bot ask interroge Ollama (qwen3:8b) via http://localhost:11434.
+- Variables optionnelles: AIPLAYER_OLLAMA_URL, AIPLAYER_OLLAMA_MODEL.
+- Fallback automatique si Ollama indisponible.

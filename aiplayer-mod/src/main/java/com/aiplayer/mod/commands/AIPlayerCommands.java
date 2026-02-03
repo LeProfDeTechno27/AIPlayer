@@ -277,13 +277,16 @@ public final class AIPlayerCommands {
 
     private static int botAsk(CommandSourceStack source, AIPlayerRuntime runtime, String question) {
         String playerId = source.getTextName();
-        long interactionId = runtime.askBot(playerId, question);
-        if (interactionId <= 0) {
+        AIPlayerRuntime.BotAskResult result = runtime.askBot(playerId, question);
+        if (result.interactionId() <= 0) {
             source.sendFailure(Component.literal("Impossible d'enregistrer l'interaction bot"));
             return 0;
         }
 
-        source.sendSuccess(() -> Component.literal("Bot ask logged id=" + interactionId + " question=" + question), false);
+        source.sendSuccess(
+            () -> Component.literal("Bot ask id=" + result.interactionId() + " -> " + result.response()),
+            false
+        );
         return 1;
     }
 

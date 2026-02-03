@@ -2,6 +2,7 @@ package com.aiplayer.mod.core;
 
 import com.aiplayer.mod.integrations.AE2Bridge;
 import com.aiplayer.mod.integrations.MineColoniesBridge;
+import com.aiplayer.mod.integrations.OllamaClient;
 import com.aiplayer.mod.persistence.BotMemoryRepository;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -23,6 +24,7 @@ public final class AIPlayerRuntime {
     private final BotMemoryRepository memoryRepository;
     private final MineColoniesBridge mineColoniesBridge;
     private final AE2Bridge ae2Bridge;
+    private final OllamaClient ollamaClient;
 
     private String phase;
     private UUID botMarkerEntityId;
@@ -33,6 +35,7 @@ public final class AIPlayerRuntime {
         this.memoryRepository = memoryRepository;
         this.mineColoniesBridge = new MineColoniesBridge();
         this.ae2Bridge = new AE2Bridge();
+        this.ollamaClient = new OllamaClient(resolveOllamaUrl(), resolveOllamaModel());
         this.phase = this.memoryRepository.loadCurrentPhase().orElse("bootstrap");
         this.currentObjective = this.memoryRepository.loadCurrentBotTask().map(BotMemoryRepository.BotTask::objective).orElse("none");
     }
@@ -105,13 +108,14 @@ public final class AIPlayerRuntime {
     public int countOpenBotTasks() {
         return this.memoryRepository.countOpenBotTasks();
     }
-    public long askBot(String playerId, String question) {
-        String response = "Question recue: " + question + " | objectif courant=" + this.currentObjective;
+    public BotAskResult askBot(String playerId, String question) {
+        String response = this.ollamaClient.ask(question, this.currentObjective)
+            .orElse("(fallback) Objectif=" + this.currentObjective + ". Recoit ta question: " + question);
         long interactionId = this.memoryRepository.recordInteraction(playerId, question, response);
         if (interactionId > 0) {
-            this.memoryRepository.recordAction("bot-ask", "id=" + interactionId + " player=" + playerId);
+            this.memoryRepository.recordAction("bot-ask", "id=" + interactionId + " player=" + playerId + " response=ok");
         }
-        return interactionId;
+        return new BotAskResult(interactionId, response);
     }
 
     public List<BotMemoryRepository.InteractionRecord> getRecentInteractions(int limit) {
@@ -259,6 +263,17 @@ public final class AIPlayerRuntime {
         }
     }
 
+    public record BotAskResult(long interactionId, String response) {
+    }
+    private String resolveOllamaUrl() {
+        String env = System.getenv("AIPLAYER_OLLAMA_URL");
+        return (env == null || env.isBlank()) ? "http://localhost:11434" : env.trim();
+    }
+
+    private String resolveOllamaModel() {
+        String env = System.getenv("AIPLAYER_OLLAMA_MODEL");
+        return (env == null || env.isBlank()) ? "qwen3:8b" : env.trim();
+    }
     private Entity getTrackedMarker(ServerLevel level) {
         if (this.botMarkerEntityId == null) {
             return null;
