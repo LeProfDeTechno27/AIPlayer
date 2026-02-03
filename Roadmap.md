@@ -636,7 +636,7 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] MineColonies API study (owner assignment feasibility)
 - [x] AE2 API access confirmed
 - [x] CC peripheral interface documented
-- [ ] 6c/24GB server ready (actuel: host 6 cores / 16.47 GB RAM; Docker alloue: 12 vCPU / 7.98 GB)
+- [ ] 6c/24GB server ready (check script: `scripts/check-server-capacity.ps1`; current: host 12 cores / 15.34 GB RAM, Docker 12 vCPU / 7.43 GB RAM).
 
 **Go?** ✅ Start Sprint 1 → Bot becomes Town Hall Owner
 ---
@@ -666,3 +666,4 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Plan appliqué (Sprint 1): commande `/bot task delete <id>` pour supprimer une tâche fermée ciblée.
 - [x] Plan appliqué (Sprint 1): commande `/bot task start <id>` pour forcer une tâche en ACTIVE.
 - [x] Plan appliqué (Phase 1.2): activation dynamique des modules au boot via `AIPLAYER_ENABLED_MODULES`.
+- [x] Plan appliqué (Ops): script `scripts/check-server-capacity.ps1` ajouté pour vérifier la cible 6c/24GB (host + Docker).
