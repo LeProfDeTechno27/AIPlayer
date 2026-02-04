@@ -115,6 +115,21 @@ public final class AIPlayerRuntime {
         return this.moduleManager.getRegisteredModuleNames();
     }
 
+
+    public boolean reloadModulesFromStorage() {
+        if (hasEnabledModulesEnvOverride()) {
+            return false;
+        }
+
+        Optional<List<String>> loaded = this.memoryRepository.loadEnabledModules();
+        if (loaded.isEmpty()) {
+            return false;
+        }
+
+        this.moduleManager.setEnabledModules(loaded.get());
+        this.memoryRepository.recordAction("reload-modules", String.join(",", this.moduleManager.getEnabledModuleNames()));
+        return true;
+    }
     public void resetModules() {
         this.moduleManager.setEnabledModules(this.moduleManager.getRegisteredModuleNames());
         this.memoryRepository.saveEnabledModules(this.moduleManager.getEnabledModuleNames());

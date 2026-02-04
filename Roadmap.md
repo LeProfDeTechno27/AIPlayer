@@ -671,3 +671,4 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Plan appliqué (Phase 1.2): commande `/aiplayer module reset` pour réactiver le set complet de modules.
 - [x] Plan appliqué (Phase 1.2): commande `/aiplayer module disable-all` pour couper tous les modules actifs en une action.
 - [x] Plan appliqué (Phase 1.2): commande /aiplayer module status <name> pour diagnostiquer rapidement l'état d'un module.
+- [x] Plan appliqué (Phase 1.2): commande `/aiplayer module reload` pour recharger la config modules depuis SQLite (hors override env).
