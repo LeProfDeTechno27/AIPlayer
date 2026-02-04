@@ -667,3 +667,4 @@ Week 3: 24 citizens, 85% (max with current infrastructure)
 - [x] Plan appliqué (Sprint 1): commande `/bot task start <id>` pour forcer une tâche en ACTIVE.
 - [x] Plan appliqué (Phase 1.2): activation dynamique des modules au boot via `AIPLAYER_ENABLED_MODULES`.
 - [x] Plan appliqué (Ops): script `scripts/check-server-capacity.ps1` ajouté pour vérifier la cible 6c/24GB (host + Docker).
+- [x] Plan appliqué (Phase 1.2): persistance SQLite des modules activés (reload automatique au boot, sauf override env).
