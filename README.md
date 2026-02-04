@@ -28,6 +28,15 @@ docker compose --profile bootstrap up ollama-pull
 docker compose --profile dev run --rm mod-dev bash
 ```
 
+## Validation serveur cible (6c/24GB)
+
+```powershell
+./scripts/check-server-capacity.ps1
+```
+
+Le script vérifie:
+- Host >= 6 cores logiques et >= 24 GB RAM
+- Docker >= 6 CPUs et >= 24 GB RAM alloués
 ## Etat actuel valide
 
 - `minecraft` healthy sur `25565`

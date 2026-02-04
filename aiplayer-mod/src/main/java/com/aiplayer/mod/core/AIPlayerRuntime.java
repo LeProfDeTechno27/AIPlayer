@@ -99,6 +99,12 @@ public final class AIPlayerRuntime {
         return this.moduleManager.getRegisteredModuleNames();
     }
 
+    public void resetModules() {
+        this.moduleManager.setEnabledModules(this.moduleManager.getRegisteredModuleNames());
+        this.memoryRepository.saveEnabledModules(this.moduleManager.getEnabledModuleNames());
+        this.memoryRepository.recordAction("reset-modules", String.join(",", this.moduleManager.getEnabledModuleNames()));
+    }
+
     public long queueBotTask(String objective, String requestedBy) {
         long taskId = this.memoryRepository.enqueueBotTask(objective, requestedBy);
         if (taskId > 0) {
