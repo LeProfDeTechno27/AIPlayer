@@ -196,6 +196,8 @@ public final class AIPlayerCommands {
                 .then(Commands.literal("module")
                     .then(Commands.literal("list")
                         .executes(context -> listModules(context.getSource(), runtime)))
+                    .then(Commands.literal("reset")
+                        .executes(context -> resetModules(context.getSource(), runtime)))
                     .then(Commands.literal("enable")
                         .then(Commands.argument("name", StringArgumentType.word())
                             .suggests((context, builder) -> SharedSuggestionProvider.suggest(runtime.getRegisteredModules(), builder))
@@ -523,6 +525,14 @@ public final class AIPlayerCommands {
         return 1;
     }
 
+
+    private static int resetModules(CommandSourceStack source, AIPlayerRuntime runtime) {
+        runtime.resetModules();
+        StringJoiner enabled = new StringJoiner(", ");
+        runtime.getEnabledModules().forEach(enabled::add);
+        source.sendSuccess(() -> Component.literal("Modules reset: enabled=[" + enabled + "]"), false);
+        return 1;
+    }
     private static int enableModule(CommandSourceStack source, AIPlayerRuntime runtime, String moduleName) {
         if (!runtime.enableModule(moduleName)) {
             source.sendFailure(Component.literal("Unknown module: " + moduleName));
