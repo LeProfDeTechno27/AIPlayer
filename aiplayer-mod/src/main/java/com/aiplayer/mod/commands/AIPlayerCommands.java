@@ -200,6 +200,8 @@ public final class AIPlayerCommands {
                         .then(Commands.argument("name", StringArgumentType.word())
                             .suggests((context, builder) -> SharedSuggestionProvider.suggest(runtime.getRegisteredModules(), builder))
                             .executes(context -> moduleStatus(context.getSource(), runtime, StringArgumentType.getString(context, "name")))))
+                    .then(Commands.literal("source")
+                        .executes(context -> moduleSource(context.getSource(), runtime)))
                     .then(Commands.literal("reload")
                         .executes(context -> reloadModules(context.getSource(), runtime)))
                     .then(Commands.literal("reset")
@@ -535,6 +537,18 @@ public final class AIPlayerCommands {
 
 
 
+
+    private static int moduleSource(CommandSourceStack source, AIPlayerRuntime runtime) {
+        boolean envOverride = runtime.isModulesEnvOverrideActive();
+        Optional<List<String>> stored = runtime.getStoredEnabledModules();
+        String storedText = stored.map(values -> values.isEmpty() ? "[]" : values.toString()).orElse("<none>");
+
+        source.sendSuccess(
+            () -> Component.literal("Module source: envOverride=" + envOverride + " sqlite=" + storedText),
+            false
+        );
+        return 1;
+    }
     private static int moduleStatus(CommandSourceStack source, AIPlayerRuntime runtime, String moduleName) {
         if (!runtime.isModuleRegistered(moduleName)) {
             source.sendFailure(Component.literal("Unknown module: " + moduleName));

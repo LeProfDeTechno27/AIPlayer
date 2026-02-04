@@ -111,6 +111,14 @@ public final class AIPlayerRuntime {
     public boolean isModuleEnabled(String moduleName) {
         return this.moduleManager.getEnabledModuleNames().contains(moduleName);
     }
+
+    public boolean isModulesEnvOverrideActive() {
+        return hasEnabledModulesEnvOverride();
+    }
+
+    public Optional<List<String>> getStoredEnabledModules() {
+        return this.memoryRepository.loadEnabledModules();
+    }
     public List<String> getRegisteredModules() {
         return this.moduleManager.getRegisteredModuleNames();
     }
