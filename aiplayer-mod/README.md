@@ -33,6 +33,7 @@ docker build -f docker/mod-build-check.Dockerfile -t aiplayer-mod-check .
 - `/aiplayer tick`
 - `/aiplayer module list`
 - `/aiplayer module reset`
+- `/aiplayer module disable-all`
 - `/aiplayer module enable <name>`
 - `/aiplayer module disable <name>`
 - `/aiplayer colony status`

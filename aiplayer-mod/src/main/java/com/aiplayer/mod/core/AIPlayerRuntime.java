@@ -95,6 +95,14 @@ public final class AIPlayerRuntime {
         return this.moduleManager.getEnabledModuleNames();
     }
 
+
+    public int disableAllModules() {
+        int before = this.moduleManager.getEnabledModuleNames().size();
+        this.moduleManager.setEnabledModules(List.of());
+        this.memoryRepository.saveEnabledModules(this.moduleManager.getEnabledModuleNames());
+        this.memoryRepository.recordAction("disable-all-modules", "count=" + before);
+        return before;
+    }
     public List<String> getRegisteredModules() {
         return this.moduleManager.getRegisteredModuleNames();
     }
