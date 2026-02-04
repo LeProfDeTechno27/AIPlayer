@@ -103,6 +103,14 @@ public final class AIPlayerRuntime {
         this.memoryRepository.recordAction("disable-all-modules", "count=" + before);
         return before;
     }
+
+    public boolean isModuleRegistered(String moduleName) {
+        return this.moduleManager.getRegisteredModuleNames().contains(moduleName);
+    }
+
+    public boolean isModuleEnabled(String moduleName) {
+        return this.moduleManager.getEnabledModuleNames().contains(moduleName);
+    }
     public List<String> getRegisteredModules() {
         return this.moduleManager.getRegisteredModuleNames();
     }
