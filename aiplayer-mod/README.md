@@ -74,3 +74,5 @@ Documentation de l'interface peripherals/turtles:
 
 - Cycle simple: PENDING -> ACTIVE -> DONE Ã  chaque /aiplayer tick.
 - Override manuel: /bot task done|cancel|reopen <id>.
+
+- Modules activés sont persistés en SQLite (`bot_config`) et rechargés au démarrage (sauf si `AIPLAYER_ENABLED_MODULES` est défini).

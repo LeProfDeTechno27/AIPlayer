@@ -41,7 +41,15 @@ public final class AIPlayerRuntime {
     }
 
     public void initialize() {
+        boolean envOverride = hasEnabledModulesEnvOverride();
+        if (!envOverride) {
+            this.memoryRepository.loadEnabledModules()
+                .filter(modules -> !modules.isEmpty())
+                .ifPresent(this.moduleManager::setEnabledModules);
+        }
+
         this.moduleManager.initialize(new BotContext(this.phase));
+        this.memoryRepository.saveEnabledModules(this.moduleManager.getEnabledModuleNames());
     }
 
     public String getPhase() {
@@ -69,6 +77,7 @@ public final class AIPlayerRuntime {
         boolean enabled = this.moduleManager.enableModule(moduleName);
         if (enabled) {
             this.memoryRepository.recordAction("enable-module", moduleName);
+            this.memoryRepository.saveEnabledModules(this.moduleManager.getEnabledModuleNames());
         }
         return enabled;
     }
@@ -77,6 +86,7 @@ public final class AIPlayerRuntime {
         boolean disabled = this.moduleManager.disableModule(moduleName);
         if (disabled) {
             this.memoryRepository.recordAction("disable-module", moduleName);
+            this.memoryRepository.saveEnabledModules(this.moduleManager.getEnabledModuleNames());
         }
         return disabled;
     }
@@ -370,6 +380,11 @@ public final class AIPlayerRuntime {
     public record BotAskResult(long interactionId, String response) {
     }
 
+
+    private boolean hasEnabledModulesEnvOverride() {
+        String env = System.getenv("AIPLAYER_ENABLED_MODULES");
+        return env != null && !env.isBlank();
+    }
     private String resolveOllamaUrl() {
         String env = System.getenv("AIPLAYER_OLLAMA_URL");
         return (env == null || env.isBlank()) ? "http://localhost:11434" : env.trim();

@@ -13,6 +13,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
@@ -51,6 +52,51 @@ public final class BotMemoryRepository {
         return Optional.empty();
     }
 
+    public Optional<List<String>> loadEnabledModules() {
+        String sql = "SELECT config_value FROM bot_config WHERE config_key = 'enabled_modules'";
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet resultSet = statement.executeQuery()) {
+            if (resultSet.next()) {
+                String raw = resultSet.getString("config_value");
+                if (raw == null || raw.isBlank()) {
+                    return Optional.of(List.of());
+                }
+
+                List<String> modules = Arrays.stream(raw.split(","))
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .toList();
+
+                return Optional.of(modules);
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load enabled modules", exception);
+        }
+
+        return Optional.empty();
+    }
+
+    public void saveEnabledModules(List<String> moduleNames) {
+        String sql = """
+            INSERT INTO bot_config (config_key, config_value, updated_at)
+            VALUES ('enabled_modules', ?, ?)
+            ON CONFLICT(config_key) DO UPDATE SET
+              config_value = excluded.config_value,
+              updated_at = excluded.updated_at
+            """;
+
+        String payload = String.join(",", moduleNames);
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, payload);
+            statement.setString(2, Instant.now().toString());
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to persist enabled modules", exception);
+        }
+    }
     public void saveCurrentPhase(String phase) {
         String sql = """
             INSERT INTO bot_state (id, phase, updated_at)
@@ -563,6 +609,13 @@ public final class BotMemoryRepository {
                     ")"
             );
 
+            statement.execute(
+                "CREATE TABLE IF NOT EXISTS bot_config (" +
+                    "config_key TEXT PRIMARY KEY," +
+                    "config_value TEXT NOT NULL," +
+                    "updated_at TEXT NOT NULL" +
+                    ")"
+            );
             statement.execute(
                 "CREATE TABLE IF NOT EXISTS bot_actions (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT," +
