@@ -200,6 +200,8 @@ public final class AIPlayerCommands {
                         .then(Commands.argument("name", StringArgumentType.word())
                             .suggests((context, builder) -> SharedSuggestionProvider.suggest(runtime.getRegisteredModules(), builder))
                             .executes(context -> moduleStatus(context.getSource(), runtime, StringArgumentType.getString(context, "name")))))
+                    .then(Commands.literal("reload")
+                        .executes(context -> reloadModules(context.getSource(), runtime)))
                     .then(Commands.literal("reset")
                         .executes(context -> resetModules(context.getSource(), runtime)))
                     .then(Commands.literal("disable-all")
@@ -541,6 +543,19 @@ public final class AIPlayerCommands {
 
         boolean enabled = runtime.isModuleEnabled(moduleName);
         source.sendSuccess(() -> Component.literal("Module status: " + moduleName + " enabled=" + enabled), false);
+        return 1;
+    }
+
+    private static int reloadModules(CommandSourceStack source, AIPlayerRuntime runtime) {
+        boolean reloaded = runtime.reloadModulesFromStorage();
+        if (!reloaded) {
+            source.sendFailure(Component.literal("Impossible de recharger les modules (config absente ou override env actif)."));
+            return 0;
+        }
+
+        StringJoiner enabled = new StringJoiner(", ");
+        runtime.getEnabledModules().forEach(enabled::add);
+        source.sendSuccess(() -> Component.literal("Modules reloaded from storage: enabled=[" + enabled + "]"), false);
         return 1;
     }
     private static int resetModules(CommandSourceStack source, AIPlayerRuntime runtime) {
