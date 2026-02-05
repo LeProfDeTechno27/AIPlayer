@@ -4,12 +4,31 @@ Cette base est 100% dockerisee pour le serveur et le dev du mod.
 
 ## Services
 
-- `minecraft` : NeoForge `1.21.1 / 21.1.172` + mods du dossier `Ressource minecraft/mods`
+- `minecraft` : NeoForge `1.21.1 / 21.1.172` depuis `Ressource minecraft/neoforge-21.1.172` + mods du dossier `Ressource minecraft/mods`
 - `ollama` : endpoint local LLM (port `11434`)
 - `ollama-pull` : job ponctuel de pull du modele (`qwen3:8b` par defaut)
 - `mod-dev` (profil `dev`) : shell Gradle/JDK21 pour developper le mod sans installer Java localement
 
 ## Demarrage rapide
+
+
+## Variables Minecraft
+
+- `MC_EULA` : accepter la EULA (TRUE/FALSE)
+- `MC_JVM_HEAP_MIN` : heap minimum (ex: 4G)
+- `MC_JVM_HEAP_MAX` : heap maximum (ex: 12G)
+- `MC_JVM_EXTRA_OPTS` : options JVM additionnelles
+- `MC_FORCE_JVM_ARGS_UPDATE` : forcer regen `user_jvm_args.txt`
+- `AIPLAYER_DECISION_INTERVAL_SECONDS` : intervalle decisions Ollama (secondes)
+- `AIPLAYER_DECISION_WINDOW_SECONDS` : fenetre rate-limit decisions LLM
+- `AIPLAYER_DECISION_MAX_PER_WINDOW` : max decisions LLM par fenetre
+- `AIPLAYER_DECISION_CACHE_SECONDS` : TTL cache des reponses LLM
+- `AIPLAYER_DECISION_DEGRADE_SECONDS` : intervalle degrade en surcharge
+- `AIPLAYER_ACTION_FLUSH_SECONDS` : flush batch SQLite (bot_actions)
+- `AIPLAYER_ACTION_BATCH_SIZE` : taille batch SQLite
+- `AIPLAYER_ACTION_BUFFER_WARN` : seuil buffer avant degradation
+
+
 
 ```bash
 cp .env.example .env
@@ -27,6 +46,16 @@ docker compose --profile bootstrap up ollama-pull
 ```bash
 docker compose --profile dev run --rm mod-dev bash
 ```
+
+## Profil perf (serveur max 6c/24GB)
+
+Recommandation de base (profil light):
+
+- `AIPLAYER_DECISION_INTERVAL_SECONDS=90`
+- `AIPLAYER_DECISION_MAX_PER_WINDOW=2`
+- `AIPLAYER_DECISION_DEGRADE_SECONDS=120`
+- `AIPLAYER_ACTION_FLUSH_SECONDS=30`
+- `AIPLAYER_ACTION_BATCH_SIZE=50`
 
 ## Validation serveur cible (6c/24GB)
 

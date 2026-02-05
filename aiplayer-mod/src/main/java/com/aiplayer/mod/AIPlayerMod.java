@@ -1,6 +1,8 @@
 package com.aiplayer.mod;
 
 import com.aiplayer.mod.commands.AIPlayerCommands;
+import com.aiplayer.mod.entity.AIBotEntities;
+import com.aiplayer.mod.entity.AIBotEntity;
 import com.aiplayer.mod.core.AIPlayerRuntime;
 import com.aiplayer.mod.core.ModuleManager;
 import com.aiplayer.mod.modules.AE2Module;
@@ -10,8 +12,12 @@ import com.aiplayer.mod.modules.MineColoniesModule;
 import com.aiplayer.mod.persistence.BotMemoryRepository;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
+import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,6 +31,7 @@ public class AIPlayerMod {
     private static final Logger LOGGER = LoggerFactory.getLogger(AIPlayerMod.class);
 
     private final ModuleManager moduleManager;
+    private final BotMemoryRepository memoryRepository;
     private final AIPlayerRuntime runtime;
 
     public AIPlayerMod() {
@@ -32,11 +39,15 @@ public class AIPlayerMod {
         registerDefaultModules();
         applyEnabledModulesOverride();
 
-        BotMemoryRepository memoryRepository = new BotMemoryRepository(Path.of("aiplayer", "bot-memory.db"));
-        memoryRepository.initializeSchema();
+        this.memoryRepository = new BotMemoryRepository(Path.of("aiplayer", "bot-memory.db"));
+        this.memoryRepository.initializeSchema();
 
-        this.runtime = new AIPlayerRuntime(this.moduleManager, memoryRepository);
+        this.runtime = new AIPlayerRuntime(this.moduleManager, this.memoryRepository);
         this.runtime.initialize();
+
+        IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
+        AIBotEntities.ENTITIES.register(modBus);
+        modBus.addListener(this::onEntityAttributes);
 
         NeoForge.EVENT_BUS.register(this);
 
@@ -44,9 +55,20 @@ public class AIPlayerMod {
     }
 
     @SubscribeEvent
+    public void onEntityAttributes(EntityAttributeCreationEvent event) {
+        event.put(AIBotEntities.AI_BOT.get(), AIBotEntity.createAttributes().build());
+    }
+
+    @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
         AIPlayerCommands.register(event.getDispatcher(), this.runtime);
         LOGGER.info("/aiplayer command tree registered");
+    }
+
+    @SubscribeEvent
+    public void onServerStopping(ServerStoppingEvent event) {
+        this.memoryRepository.flushActions();
+        LOGGER.info("Buffered bot actions flushed on server stop");
     }
 
     private void registerDefaultModules() {
