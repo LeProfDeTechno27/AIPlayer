@@ -10,7 +10,7 @@ docker build -f docker/mod-build-check.Dockerfile -t aiplayer-mod-check .
 
 ## Commandes serveur
 
-- `/bot spawn [name]`
+- `/bot spawn [name]` (spawn entit? AIBot)
 - `/bot status`
 - `/bot task <objective>`
 - `/bot task done <id>`
@@ -59,6 +59,10 @@ docker build -f docker/mod-build-check.Dockerfile -t aiplayer-mod-check .
 - `/aiplayer ae2 queue clear [limit]`
 - /aiplayer ae2 queue replay <status> [limit]
 - /aiplayer ae2 queue replay all [limit]
+- /aiplayer ae2 queue replay failed [limit]
+- /aiplayer ae2 queue replay dispatched [limit]
+- /aiplayer ae2 queue replay canceled [limit]
+- /aiplayer ae2 queue replay done [limit]
 - `/aiplayer ae2 queue delete <id>`
 - /aiplayer ae2 queue cancel <id> [reason]
 - `/aiplayer ae2 queue stats`

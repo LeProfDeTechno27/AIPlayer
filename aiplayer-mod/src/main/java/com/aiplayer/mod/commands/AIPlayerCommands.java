@@ -1,6 +1,7 @@
 package com.aiplayer.mod.commands;
 
 import com.aiplayer.mod.core.AIPlayerRuntime;
+import com.aiplayer.mod.core.BotBrain;
 import com.aiplayer.mod.integrations.AE2Bridge;
 import com.aiplayer.mod.integrations.MineColoniesBridge;
 import com.aiplayer.mod.persistence.BotMemoryRepository;
@@ -9,6 +10,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.core.BlockPos;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
@@ -23,6 +25,8 @@ public final class AIPlayerCommands {
     private static final String DEFAULT_COLONY_NAME = "aiplayer";
     private static final String DEFAULT_COLONY_STYLE = "medievaloak";
     private static final int DEFAULT_RECRUIT_COUNT = 3;
+    private static final int DEFAULT_COLONY_ENSURE_COUNT = 4;
+    private static final int DEFAULT_COLONY_REQUEST_COUNT = 16;
 
     private static final int DEFAULT_AE2_RADIUS = 12;
     private static final int DEFAULT_AE2_CRAFT_QUANTITY = 1;
@@ -62,14 +66,30 @@ public final class AIPlayerCommands {
                 .requires(source -> source.hasPermission(2))
                 .then(Commands.literal("spawn")
                     .then(Commands.argument("name", StringArgumentType.word())
-                        .executes(context -> spawnMarkerNamed(
+                        .executes(context -> spawnBotNamed(
                             context.getSource(),
                             runtime,
                             StringArgumentType.getString(context, "name")
                         )))
-                    .executes(context -> spawnMarkerNamed(context.getSource(), runtime, "AIPlayer Bot")))
+                    .executes(context -> spawnBotNamed(context.getSource(), runtime, "AIPlayer Bot")))
                 .then(Commands.literal("status")
                     .executes(context -> showStatus(context.getSource(), runtime)))
+                .then(Commands.literal("xp")
+                    .executes(context -> botXpStatus(context.getSource(), runtime))
+                    .then(Commands.literal("add")
+                        .then(Commands.argument("amount", IntegerArgumentType.integer(1, 10000))
+                            .executes(context -> botXpAdd(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "amount")
+                            ))))
+                    .then(Commands.literal("set")
+                        .then(Commands.argument("amount", IntegerArgumentType.integer(0, 100000))
+                            .executes(context -> botXpSet(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "amount")
+                            )))))
                 .then(Commands.literal("task")
                     .then(Commands.literal("done")
                         .then(Commands.argument("id", IntegerArgumentType.integer(1))
@@ -124,6 +144,13 @@ public final class AIPlayerCommands {
                             ))))
                     .then(Commands.argument("objective", StringArgumentType.greedyString())
                         .executes(context -> botTask(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "objective")
+                        ))))
+                .then(Commands.literal("build")
+                    .then(Commands.argument("objective", StringArgumentType.greedyString())
+                        .executes(context -> botBuild(
                             context.getSource(),
                             runtime,
                             StringArgumentType.getString(context, "objective")
@@ -236,6 +263,29 @@ public final class AIPlayerCommands {
                 .then(Commands.literal("colony")
                     .then(Commands.literal("status")
                         .executes(context -> colonyStatus(context.getSource(), runtime)))
+                    .then(Commands.literal("townhall")
+                        .executes(context -> colonyTownHall(context.getSource(), runtime)))
+                    .then(Commands.literal("ensure")
+                        .executes(context -> colonyEnsure(context.getSource(), runtime, DEFAULT_COLONY_ENSURE_COUNT))
+                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 50))
+                            .executes(context -> colonyEnsure(context.getSource(), runtime, IntegerArgumentType.getInteger(context, "count"))))))
+                    .then(Commands.literal("request")
+                        .then(Commands.argument("itemId", StringArgumentType.word())
+                            .executes(context -> colonyRequest(
+                                context.getSource(),
+                                runtime,
+                                StringArgumentType.getString(context, "itemId"),
+                                DEFAULT_COLONY_REQUEST_COUNT
+                            ))
+                            .then(Commands.argument("count", IntegerArgumentType.integer(1, 512))
+                                .executes(context -> colonyRequest(
+                                    context.getSource(),
+                                    runtime,
+                                    StringArgumentType.getString(context, "itemId"),
+                                    IntegerArgumentType.getInteger(context, "count")
+                                )))))
+                    .then(Commands.literal("mayor")
+                        .executes(context -> colonyMayor(context.getSource(), runtime)))
                     .then(Commands.literal("create")
                         .executes(context -> colonyCreateDefault(context.getSource(), runtime))
                         .then(Commands.argument("name", StringArgumentType.word())
@@ -322,6 +372,54 @@ public final class AIPlayerCommands {
                                     IntegerArgumentType.getInteger(context, "id")
                                 ))))
                         .then(Commands.literal("replay")
+                            .then(Commands.literal("failed")
+                                .executes(context -> ae2QueueReplayFailed(
+                                    context.getSource(),
+                                    runtime,
+                                    DEFAULT_AE2_REPLAY_LIMIT
+                                ))
+                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(context -> ae2QueueReplayFailed(
+                                        context.getSource(),
+                                        runtime,
+                                        IntegerArgumentType.getInteger(context, "limit")
+                                    ))))
+                            .then(Commands.literal("dispatched")
+                                .executes(context -> ae2QueueReplayDispatched(
+                                    context.getSource(),
+                                    runtime,
+                                    DEFAULT_AE2_REPLAY_LIMIT
+                                ))
+                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(context -> ae2QueueReplayDispatched(
+                                        context.getSource(),
+                                        runtime,
+                                        IntegerArgumentType.getInteger(context, "limit")
+                                    ))))
+                            .then(Commands.literal("canceled")
+                                .executes(context -> ae2QueueReplayCanceled(
+                                    context.getSource(),
+                                    runtime,
+                                    DEFAULT_AE2_REPLAY_LIMIT
+                                ))
+                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(context -> ae2QueueReplayCanceled(
+                                        context.getSource(),
+                                        runtime,
+                                        IntegerArgumentType.getInteger(context, "limit")
+                                    ))))
+                            .then(Commands.literal("done")
+                                .executes(context -> ae2QueueReplayDone(
+                                    context.getSource(),
+                                    runtime,
+                                    DEFAULT_AE2_REPLAY_LIMIT
+                                ))
+                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(context -> ae2QueueReplayDone(
+                                        context.getSource(),
+                                        runtime,
+                                        IntegerArgumentType.getInteger(context, "limit")
+                                    ))))
                             .then(Commands.literal("all")
                                 .executes(context -> ae2QueueReplayAll(
                                     context.getSource(),
@@ -449,17 +547,34 @@ public final class AIPlayerCommands {
 
     private static int showStatus(CommandSourceStack source, AIPlayerRuntime runtime) {
         StringJoiner joiner = new StringJoiner(", ");
+        BotBrain.DecisionStats stats = runtime.getDecisionStats();
         runtime.getEnabledModules().forEach(joiner::add);
 
         source.sendSuccess(
             () -> Component.literal(
                 "phase=" + runtime.getPhase()
                     + " | objective=" + runtime.getCurrentObjective()
+                    + " | xp=" + runtime.getBotXp() + " (" + runtime.getBotSkillTier() + ")"
                     + " | botTasks=" + runtime.countOpenBotTasks()
+                    + " | decisions=" + stats.totalDecisions() + " cache=" + stats.cacheHits() + " rateLimit=" + stats.rateLimitSkips()
+                    + " | bot=" + runtime.getBotVitals(source.getLevel())
+                        .map(v -> String.format("health=%.1f/%.1f hunger=%d", v.health(), v.maxHealth(), v.hunger()))
+                        .orElse("none")
+                    + " | survivalMin=" + runtime.getSurvivalMinutes()
                     + " | modules=" + joiner
             ),
             false
         );
+        return 1;
+    }
+
+    private static int spawnBotNamed(CommandSourceStack source, AIPlayerRuntime runtime, String botName) {
+        boolean spawned = runtime.spawnBot(source.getLevel(), source.getPosition(), botName);
+        if (!spawned) {
+            source.sendFailure(Component.literal("Unable to spawn bot entity"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("Bot entity spawned: " + botName), false);
         return 1;
     }
 
@@ -497,7 +612,7 @@ public final class AIPlayerCommands {
     }
 
     private static int tickOnce(CommandSourceStack source, AIPlayerRuntime runtime) {
-        runtime.tickOnce();
+        runtime.tickOnce(source.getLevel());
         source.sendSuccess(() -> Component.literal("AIPlayer tick executed"), false);
         return 1;
     }
@@ -508,6 +623,31 @@ public final class AIPlayerCommands {
         return 1;
     }
 
+    private static int botXpStatus(CommandSourceStack source, AIPlayerRuntime runtime) {
+        source.sendSuccess(
+            () -> Component.literal("Bot xp=" + runtime.getBotXp() + " tier=" + runtime.getBotSkillTier()),
+            false
+        );
+        return 1;
+    }
+
+    private static int botXpAdd(CommandSourceStack source, AIPlayerRuntime runtime, int amount) {
+        int xp = runtime.addBotXp(amount);
+        source.sendSuccess(
+            () -> Component.literal("Bot xp=" + xp + " tier=" + runtime.getBotSkillTier()),
+            false
+        );
+        return 1;
+    }
+
+    private static int botXpSet(CommandSourceStack source, AIPlayerRuntime runtime, int amount) {
+        int xp = runtime.setBotXp(amount);
+        source.sendSuccess(
+            () -> Component.literal("Bot xp=" + xp + " tier=" + runtime.getBotSkillTier()),
+            false
+        );
+        return 1;
+    }
     private static int botTask(CommandSourceStack source, AIPlayerRuntime runtime, String objective) {
         String requestedBy = source.getTextName();
         long taskId = runtime.queueBotTask(objective, requestedBy);
@@ -523,6 +663,21 @@ public final class AIPlayerCommands {
         return 1;
     }
 
+    private static int botBuild(CommandSourceStack source, AIPlayerRuntime runtime, String objective) {
+        String requestedBy = source.getTextName();
+        String payload = "build:" + objective;
+        long taskId = runtime.queueBotTask(payload, requestedBy);
+        if (taskId <= 0) {
+            source.sendFailure(Component.literal("Impossible de creer la tache build"));
+            return 0;
+        }
+
+        source.sendSuccess(
+            () -> Component.literal("Bot build task queued id=" + taskId + " objective=" + objective),
+            false
+        );
+        return 1;
+    }
     private static int botTasks(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
         return botTasks(source, runtime, limit, false);
     }
@@ -871,6 +1026,51 @@ public final class AIPlayerCommands {
         return 1;
     }
 
+    private static int colonyTownHall(CommandSourceStack source, AIPlayerRuntime runtime) throws CommandSyntaxException {
+        ServerPlayer player = requirePlayer(source);
+
+        if (!runtime.isMineColoniesAvailable()) {
+            source.sendFailure(Component.literal("MineColonies n est pas charge"));
+            return 0;
+        }
+
+        Optional<BlockPos> pos = runtime.getMineColoniesTownHall(player);
+        if (pos.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("Town Hall introuvable pour ce joueur"), false);
+            return 1;
+        }
+
+        BlockPos townHall = pos.get();
+        source.sendSuccess(() -> Component.literal("Town Hall pos=" + townHall.toShortString()), false);
+        return 1;
+    }
+
+    private static int colonyEnsure(CommandSourceStack source, AIPlayerRuntime runtime, int count)
+        throws CommandSyntaxException {
+        ServerPlayer player = requirePlayer(source);
+
+        if (!runtime.isMineColoniesAvailable()) {
+            source.sendFailure(Component.literal("MineColonies n est pas charge"));
+            return 0;
+        }
+
+        MineColoniesBridge.BridgeResult result = runtime.ensureMineColoniesCitizens(player, count);
+        return sendBridgeResult(source, result);
+    }
+
+    private static int colonyRequest(CommandSourceStack source, AIPlayerRuntime runtime, String itemId, int quantity)
+        throws CommandSyntaxException {
+        ServerPlayer player = requirePlayer(source);
+
+        MineColoniesBridge.BridgeResult result = runtime.requestMineColoniesDeposit(player, itemId, quantity);
+        return sendBridgeResult(source, result);
+    }
+    private static int colonyMayor(CommandSourceStack source, AIPlayerRuntime runtime) throws CommandSyntaxException {
+        ServerPlayer player = requirePlayer(source);
+
+        MineColoniesBridge.BridgeResult result = runtime.enableMineColoniesMayorMode(player);
+        return sendBridgeResult(source, result);
+    }
     private static int colonyCreateDefault(CommandSourceStack source, AIPlayerRuntime runtime) throws CommandSyntaxException {
         return colonyCreateCustom(source, runtime, DEFAULT_COLONY_NAME, DEFAULT_COLONY_STYLE);
     }
@@ -1183,6 +1383,46 @@ public final class AIPlayerCommands {
         );
         return 1;
     }
+    private static int ae2QueueReplayFailed(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        int replayed = runtime.replayAe2CraftRequestsByStatus("FAILED", limit);
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue replay failed: replayed=" + replayed + " pending=" + pending),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2QueueReplayDispatched(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        int replayed = runtime.replayAe2CraftRequestsByStatus("DISPATCHED", limit);
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue replay dispatched: replayed=" + replayed + " pending=" + pending),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2QueueReplayCanceled(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        int replayed = runtime.replayAe2CraftRequestsByStatus("CANCELED", limit);
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue replay canceled: replayed=" + replayed + " pending=" + pending),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2QueueReplayDone(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        int replayed = runtime.replayAe2CraftRequestsByStatus("DONE", limit);
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue replay done: replayed=" + replayed + " pending=" + pending),
+            false
+        );
+        return 1;
+    }
+
     private static int ae2QueueRetry(CommandSourceStack source, AIPlayerRuntime runtime, int requestId) {
         boolean retried = runtime.retryAe2CraftRequest(requestId);
         if (!retried) {
@@ -1239,3 +1479,24 @@ public final class AIPlayerCommands {
         return 1;
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

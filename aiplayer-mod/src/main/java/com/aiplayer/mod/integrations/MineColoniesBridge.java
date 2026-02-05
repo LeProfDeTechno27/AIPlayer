@@ -159,6 +159,70 @@ public final class MineColoniesBridge {
         }
     }
 
+    public BridgeResult ensureCitizenCount(ServerPlayer owner, int targetCount) {
+        if (!isAvailable()) {
+            return BridgeResult.failure("MineColonies non detecte sur ce serveur");
+        }
+
+        int safeTarget = Math.max(1, targetCount);
+
+        try {
+            Optional<Object> colonyOptional = getOwnedColonyInternal(owner);
+            if (colonyOptional.isEmpty()) {
+                return BridgeResult.failure("Aucune colonie owner pour ce joueur");
+            }
+
+            Object colony = colonyOptional.get();
+            int before = readCitizenCount(colony);
+            int needed = Math.max(0, safeTarget - before);
+            int spawned = spawnCitizens(colony, needed);
+            int after = readCitizenCount(colony);
+            ColonyInfo info = readColonyInfo(colony);
+
+            return BridgeResult.success(
+                "Citizens ensured id=" + info.id()
+                    + " target=" + safeTarget
+                    + " citizens=" + before + "->" + after
+                    + " spawned=" + spawned
+            );
+        } catch (ReflectiveOperationException exception) {
+            return BridgeResult.failure("Echec MineColonies ensure citizens: " + rootMessage(exception));
+        }
+    }
+
+    public Optional<BlockPos> getTownHallPosition(ServerPlayer owner) {
+        if (!isAvailable()) {
+            return Optional.empty();
+        }
+
+        try {
+            Optional<Object> colonyOptional = getOwnedColonyInternal(owner);
+            if (colonyOptional.isEmpty()) {
+                return Optional.empty();
+            }
+
+            Object colony = colonyOptional.get();
+            Object townHall = tryResolveTownHall(colony);
+            if (townHall == null) {
+                return Optional.empty();
+            }
+
+            Object location = tryInvoke(townHall, "getLocation");
+            if (location instanceof BlockPos pos) {
+                return Optional.of(pos);
+            }
+
+            Object pos = tryInvoke(townHall, "getPos");
+            if (pos instanceof BlockPos blockPos) {
+                return Optional.of(blockPos);
+            }
+        } catch (ReflectiveOperationException exception) {
+            LOGGER.warn("Unable to resolve MineColonies town hall position", exception);
+        }
+
+        return Optional.empty();
+    }
+
     private Optional<Object> getOwnedColonyInternal(ServerPlayer owner) throws ReflectiveOperationException {
         Object manager = getManager();
         Object colony = invoke(
@@ -225,6 +289,23 @@ public final class MineColoniesBridge {
         return ((Number) value).intValue();
     }
 
+    private Object tryResolveTownHall(Object colony) throws ReflectiveOperationException {
+        Object direct = tryInvoke(colony, "getTownHall");
+        if (direct != null) {
+            return direct;
+        }
+
+        Object buildingManager = tryInvoke(colony, "getBuildingManager");
+        if (buildingManager != null) {
+            Object viaManager = tryInvoke(buildingManager, "getTownHall");
+            if (viaManager != null) {
+                return viaManager;
+            }
+        }
+
+        return null;
+    }
+
     private Object invoke(Object target, String methodName) throws ReflectiveOperationException {
         Method method = target.getClass().getMethod(methodName);
         return method.invoke(target);
@@ -234,6 +315,25 @@ public final class MineColoniesBridge {
         throws ReflectiveOperationException {
         Method method = target.getClass().getMethod(methodName, parameterTypes);
         return method.invoke(target, args);
+    }
+
+    private Object tryInvoke(Object target, String methodName, Class<?>[] parameterTypes, Object... args)
+        throws ReflectiveOperationException {
+        try {
+            Method method = target.getClass().getMethod(methodName, parameterTypes);
+            return method.invoke(target, args);
+        } catch (NoSuchMethodException exception) {
+            return null;
+        }
+    }
+
+    private Object tryInvoke(Object target, String methodName) throws ReflectiveOperationException {
+        try {
+            Method method = target.getClass().getMethod(methodName);
+            return method.invoke(target);
+        } catch (NoSuchMethodException exception) {
+            return null;
+        }
     }
 
     private String rootMessage(Throwable throwable) {
@@ -264,3 +364,6 @@ public final class MineColoniesBridge {
         }
     }
 }
+
+
+

@@ -9,6 +9,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -20,6 +21,8 @@ public final class OllamaClient {
     private final HttpClient httpClient;
     private final String baseUrl;
     private final String model;
+    private Instant lastFailureAt;
+    private int failureStreak;
 
     public OllamaClient(String baseUrl, String model) {
         this.httpClient = HttpClient.newBuilder()
@@ -30,6 +33,11 @@ public final class OllamaClient {
     }
 
     public Optional<String> ask(String question, String objective) {
+        if (shouldBackoff()) {
+            LOGGER.warn("Ollama backoff active, skip request");
+            return Optional.empty();
+        }
+
         try {
             String payload = buildPayload(question, objective);
             HttpRequest request = HttpRequest.newBuilder()
@@ -42,18 +50,22 @@ public final class OllamaClient {
             HttpResponse<String> response = this.httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 LOGGER.warn("Ollama returned non-success status={} body={}", response.statusCode(), response.body());
+                registerFailure();
                 return Optional.empty();
             }
 
             String content = extractContent(response.body());
             if (content == null || content.isBlank()) {
                 LOGGER.warn("Ollama response did not contain message content");
+                registerFailure();
                 return Optional.empty();
             }
 
+            resetFailures();
             return Optional.of(content.trim());
         } catch (Exception exception) {
             LOGGER.warn("Failed to query Ollama", exception);
+            registerFailure();
             return Optional.empty();
         }
     }
@@ -63,11 +75,11 @@ public final class OllamaClient {
         String user = escapeJson("Objectif courant: " + objective + " | Question: " + question);
 
         return "{" +
-            "\"model\":\"" + escapeJson(this.model) + "\"," +
-            "\"stream\":false," +
-            "\"messages\":[" +
-            "{\"role\":\"system\",\"content\":\"" + system + "\"}," +
-            "{\"role\":\"user\",\"content\":\"" + user + "\"}" +
+            "\\\"model\\\":\\\"" + escapeJson(this.model) + "\\\"," +
+            "\\\"stream\\\":false," +
+            "\\\"messages\\\":[" +
+            "{\\\"role\\\":\\\"system\\\",\\\"content\\\":\\\"" + system + "\\\"}," +
+            "{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"" + user + "\\\"}" +
             "]" +
             "}";
     }
@@ -80,19 +92,44 @@ public final class OllamaClient {
 
         String raw = matcher.group(1);
         return raw
-            .replace("\\n", "\n")
-            .replace("\\r", "\r")
-            .replace("\\t", "\t")
-            .replace("\\\"", "\"")
-            .replace("\\\\", "\\");
+            .replace("\\\\n", "\n")
+            .replace("\\\\r", "\r")
+            .replace("\\\\t", "\t")
+            .replace("\\\\\"", "\"")
+            .replace("\\\\\\\\", "\\\\");
     }
 
     private String escapeJson(String value) {
         return value
-            .replace("\\", "\\\\")
-            .replace("\"", "\\\"")
-            .replace("\n", "\\n")
-            .replace("\r", "\\r")
-            .replace("\t", "\\t");
+            .replace("\\\\", "\\\\\\\\")
+            .replace("\"", "\\\\\"")
+            .replace("\n", "\\\\n")
+            .replace("\r", "\\\\r")
+            .replace("\t", "\\\\t");
+    }
+
+    private boolean shouldBackoff() {
+        if (failureStreak == 0 || lastFailureAt == null) {
+            return false;
+        }
+        Duration backoff = computeBackoff();
+        return Duration.between(lastFailureAt, Instant.now()).compareTo(backoff) < 0;
+    }
+
+    private Duration computeBackoff() {
+        int capped = Math.min(5, failureStreak);
+        long seconds = (long) Math.pow(2, capped) * 2L;
+        long bounded = Math.min(30L, seconds);
+        return Duration.ofSeconds(bounded);
+    }
+
+    private void registerFailure() {
+        failureStreak = Math.min(6, failureStreak + 1);
+        lastFailureAt = Instant.now();
+    }
+
+    private void resetFailures() {
+        failureStreak = 0;
+        lastFailureAt = null;
     }
 }

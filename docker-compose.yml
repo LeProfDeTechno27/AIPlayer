@@ -1,4 +1,4 @@
-name: aiplayer
+﻿name: aiplayer
 
 services:
   minecraft:
@@ -10,11 +10,10 @@ services:
     environment:
       TZ: "${TZ:-Europe/Paris}"
       EULA: "${MC_EULA:-TRUE}"
-      TYPE: NEOFORGE
-      VERSION: "${MC_VERSION:-1.21.1}"
-      NEOFORGE_VERSION: "${MC_NEOFORGE_VERSION:-21.1.172}"
-      MEMORY: "${MC_JVM_HEAP_MAX:-8G}"
-      USE_AIKAR_FLAGS: "${MC_USE_AIKAR_FLAGS:-true}"
+      JVM_HEAP_MIN: "${MC_JVM_HEAP_MIN:-4G}"
+      JVM_HEAP_MAX: "${MC_JVM_HEAP_MAX:-12G}"
+      JVM_EXTRA_OPTS: "${MC_JVM_EXTRA_OPTS:-}"
+      FORCE_JVM_ARGS_UPDATE: "${MC_FORCE_JVM_ARGS_UPDATE:-false}"
     ports:
       - "${MC_PORT:-25565}:25565"
     volumes:

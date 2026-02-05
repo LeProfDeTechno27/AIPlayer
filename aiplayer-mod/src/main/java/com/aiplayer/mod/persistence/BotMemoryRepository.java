@@ -11,6 +11,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -21,9 +22,17 @@ public final class BotMemoryRepository {
     private static final Logger LOGGER = LoggerFactory.getLogger(BotMemoryRepository.class);
 
     private final Path databasePath;
+    private final Duration actionFlushInterval;
+    private final int actionBatchSize;
+    private final int actionBufferWarnThreshold;
+    private final List<ActionRecord> actionBuffer = new ArrayList<>();
+    private Instant lastActionFlushAt;
 
     public BotMemoryRepository(Path databasePath) {
         this.databasePath = databasePath;
+        this.actionFlushInterval = resolveActionFlushInterval();
+        this.actionBatchSize = resolveActionBatchSize();
+        this.actionBufferWarnThreshold = resolveActionBufferWarnThreshold();
     }
 
     public void initializeSchema() {
@@ -52,6 +61,50 @@ public final class BotMemoryRepository {
         return Optional.empty();
     }
 
+    public Optional<Integer> loadBotXp() {
+        String sql = "SELECT config_value FROM bot_config WHERE config_key = ''bot_xp''";
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet resultSet = statement.executeQuery()) {
+
+            if (resultSet.next()) {
+                String raw = resultSet.getString("config_value");
+                if (raw == null || raw.isBlank()) {
+                    return Optional.empty();
+                }
+
+                try {
+                    return Optional.of(Integer.parseInt(raw.trim()));
+                } catch (NumberFormatException exception) {
+                    LOGGER.warn("Invalid bot_xp value {}", raw, exception);
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load bot xp", exception);
+        }
+
+        return Optional.empty();
+    }
+
+    public void saveBotXp(int xp) {
+        String sql = """
+            INSERT INTO bot_config (config_key, config_value, updated_at)
+            VALUES ('bot_xp', ?, ?)
+            ON CONFLICT(config_key) DO UPDATE SET
+              config_value = excluded.config_value,
+              updated_at = excluded.updated_at
+            """;
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, Integer.toString(xp));
+            statement.setString(2, Instant.now().toString());
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to persist bot xp", exception);
+        }
+    }
     public Optional<List<String>> loadEnabledModules() {
         String sql = "SELECT config_value FROM bot_config WHERE config_key = 'enabled_modules'";
 
@@ -130,16 +183,36 @@ public final class BotMemoryRepository {
     }
 
     public void recordAction(String action, String result) {
-        String sql = "INSERT INTO bot_actions(action, result, created_at) VALUES (?, ?, ?)";
+        Instant now = Instant.now();
+        ActionRecord record = new ActionRecord(action, result, now.toString());
+        synchronized (actionBuffer) {
+            actionBuffer.add(record);
+            if (shouldFlushActions(now)) {
+                flushActionBuffer(now, false);
+            }
+        }
+    }
 
-        try (Connection connection = openConnection();
-             PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, action);
-            statement.setString(2, result);
-            statement.setString(3, Instant.now().toString());
-            statement.executeUpdate();
-        } catch (SQLException exception) {
-            LOGGER.warn("Failed to record action '{}'", action, exception);
+    public void flushActions() {
+        Instant now = Instant.now();
+        synchronized (actionBuffer) {
+            flushActionBuffer(now, true);
+        }
+    }
+
+    public int getActionBufferSize() {
+        synchronized (actionBuffer) {
+            return actionBuffer.size();
+        }
+    }
+
+    public int getActionBufferWarnThreshold() {
+        return actionBufferWarnThreshold;
+    }
+
+    public boolean isActionBufferHot() {
+        synchronized (actionBuffer) {
+            return actionBuffer.size() >= actionBufferWarnThreshold;
         }
     }
 
@@ -890,6 +963,47 @@ public final class BotMemoryRepository {
         }
     }
 
+    private boolean shouldFlushActions(Instant now) {
+        if (actionBuffer.size() >= actionBatchSize) {
+            return true;
+        }
+        if (lastActionFlushAt == null) {
+            return true;
+        }
+        return Duration.between(lastActionFlushAt, now).compareTo(actionFlushInterval) >= 0;
+    }
+
+    private void flushActionBuffer(Instant now, boolean force) {
+        if (actionBuffer.isEmpty()) {
+            lastActionFlushAt = now;
+            return;
+        }
+        if (!force && !shouldFlushActions(now)) {
+            return;
+        }
+        String sql = "INSERT INTO bot_actions(action, result, created_at) VALUES (?, ?, ?)";
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            for (ActionRecord record : actionBuffer) {
+                statement.setString(1, record.action());
+                statement.setString(2, record.result());
+                statement.setString(3, record.createdAt());
+                statement.addBatch();
+            }
+            statement.executeBatch();
+            actionBuffer.clear();
+            lastActionFlushAt = now;
+        } catch (SQLException exception) {
+            int bufferSize = actionBuffer.size();
+            LOGGER.warn("Failed to flush {} bot actions", bufferSize, exception);
+            if (bufferSize > actionBufferWarnThreshold) {
+                actionBuffer.clear();
+                lastActionFlushAt = now;
+                LOGGER.warn("Action buffer cleared to avoid memory pressure (size={})", bufferSize);
+            }
+        }
+    }
+
     private Connection openConnection() throws SQLException {
         return DriverManager.getConnection("jdbc:sqlite:" + this.databasePath.toAbsolutePath());
     }
@@ -903,6 +1017,63 @@ public final class BotMemoryRepository {
                 throw new IllegalStateException("Unable to create database directory", exception);
             }
         }
+    }
+
+    private Duration resolveActionFlushInterval() {
+        String env = System.getenv("AIPLAYER_ACTION_FLUSH_SECONDS");
+        long seconds = 30;
+        if (env != null && !env.isBlank()) {
+            try {
+                seconds = Long.parseLong(env.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (seconds < 10) {
+            seconds = 10;
+        }
+        if (seconds > 300) {
+            seconds = 300;
+        }
+        return Duration.ofSeconds(seconds);
+    }
+
+    private int resolveActionBatchSize() {
+        String env = System.getenv("AIPLAYER_ACTION_BATCH_SIZE");
+        int size = 50;
+        if (env != null && !env.isBlank()) {
+            try {
+                size = Integer.parseInt(env.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (size < 10) {
+            size = 10;
+        }
+        if (size > 200) {
+            size = 200;
+        }
+        return size;
+    }
+
+    private int resolveActionBufferWarnThreshold() {
+        String env = System.getenv("AIPLAYER_ACTION_BUFFER_WARN");
+        int size = 300;
+        if (env != null && !env.isBlank()) {
+            try {
+                size = Integer.parseInt(env.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (size < 100) {
+            size = 100;
+        }
+        if (size > 2000) {
+            size = 2000;
+        }
+        return size;
+    }
+
+    public record ActionRecord(String action, String result, String createdAt) {
     }
 
     public record BotTask(
@@ -936,3 +1107,7 @@ public final class BotMemoryRepository {
     ) {
     }
 }
+
+
+
+
