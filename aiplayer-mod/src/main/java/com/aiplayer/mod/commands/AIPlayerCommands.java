@@ -27,11 +27,18 @@ public final class AIPlayerCommands {
     private static final int DEFAULT_AE2_RADIUS = 12;
     private static final int DEFAULT_AE2_CRAFT_QUANTITY = 1;
     private static final int DEFAULT_AE2_QUEUE_LIMIT = 10;
+    private static final int DEFAULT_AE2_DISPATCH_LIMIT = 5;
+    private static final int DEFAULT_AE2_CLEAR_LIMIT = 25;
+    private static final int DEFAULT_AE2_HISTORY_LIMIT = 10;
+
+    private static final int DEFAULT_AE2_REPLAY_LIMIT = 25;
+    private static final int DEFAULT_AE2_EXPORT_LIMIT = 25;
     private static final int DEFAULT_BOT_TASK_LIST_LIMIT = 5;
     private static final int DEFAULT_BOT_TASK_PRUNE_LIMIT = 20;
     private static final int DEFAULT_BOT_INTERACTION_LIST_LIMIT = 5;
 
     private static final List<String> BOT_TASK_STATUS_SUGGESTIONS = List.of("PENDING", "ACTIVE", "DONE", "CANCELED");
+    private static final List<String> AE2_REQUEST_STATUS_SUGGESTIONS = List.of("PENDING", "DISPATCHED", "FAILED", "DONE", "CANCELED");
 
     private static final List<String> COLONY_STYLE_SUGGESTIONS = List.of(
         "medievaloak",
@@ -108,7 +115,7 @@ public final class AIPlayerCommands {
                                     IntegerArgumentType.getInteger(context, "id"),
                                     StringArgumentType.getString(context, "objective")
                                 )))))
-                    .then(Commands.literal("delete")
+                        .then(Commands.literal("delete")
                         .then(Commands.argument("id", IntegerArgumentType.integer(1))
                             .executes(context -> botTaskDelete(
                                 context.getSource(),
@@ -202,6 +209,16 @@ public final class AIPlayerCommands {
                             .executes(context -> moduleStatus(context.getSource(), runtime, StringArgumentType.getString(context, "name")))))
                     .then(Commands.literal("source")
                         .executes(context -> moduleSource(context.getSource(), runtime)))
+                    .then(Commands.literal("audit")
+                        .executes(context -> moduleAudit(context.getSource(), runtime)))
+                    .then(Commands.literal("drift")
+                        .executes(context -> moduleDrift(context.getSource(), runtime)))
+                    .then(Commands.literal("reconcile")
+                        .executes(context -> moduleReconcile(context.getSource(), runtime)))
+                    .then(Commands.literal("clear-storage")
+                        .executes(context -> clearModuleStorage(context.getSource(), runtime)))
+                    .then(Commands.literal("save")
+                        .executes(context -> saveModules(context.getSource(), runtime)))
                     .then(Commands.literal("reload")
                         .executes(context -> reloadModules(context.getSource(), runtime)))
                     .then(Commands.literal("reset")
@@ -277,6 +294,152 @@ public final class AIPlayerCommands {
                         .executes(context -> ae2Queue(context.getSource(), runtime, DEFAULT_AE2_QUEUE_LIMIT))
                         .then(Commands.argument("limit", IntegerArgumentType.integer(1, 25))
                             .executes(context -> ae2Queue(
+                                context.getSource(),
+                                runtime,
+                                IntegerArgumentType.getInteger(context, "limit")
+                            )))
+                        .then(Commands.literal("pending")
+                            .executes(context -> ae2Queue(context.getSource(), runtime, DEFAULT_AE2_QUEUE_LIMIT))
+                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 25))
+                                .executes(context -> ae2Queue(
+                                    context.getSource(),
+                                    runtime,
+                                    IntegerArgumentType.getInteger(context, "limit")
+                                ))))
+                        .then(Commands.literal("clear")
+                            .executes(context -> ae2QueueClear(context.getSource(), runtime, DEFAULT_AE2_CLEAR_LIMIT))
+                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 500))
+                                .executes(context -> ae2QueueClear(
+                                    context.getSource(),
+                                    runtime,
+                                    IntegerArgumentType.getInteger(context, "limit")
+                                )))))
+                        .then(Commands.literal("retry")
+                            .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                                .executes(context -> ae2QueueRetry(
+                                    context.getSource(),
+                                    runtime,
+                                    IntegerArgumentType.getInteger(context, "id")
+                                ))))
+                        .then(Commands.literal("replay")
+                            .then(Commands.literal("all")
+                                .executes(context -> ae2QueueReplayAll(
+                                    context.getSource(),
+                                    runtime,
+                                    DEFAULT_AE2_REPLAY_LIMIT
+                                ))
+                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(context -> ae2QueueReplayAll(
+                                        context.getSource(),
+                                        runtime,
+                                        IntegerArgumentType.getInteger(context, "limit")
+                                    ))))
+                            .then(Commands.argument("status", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(AE2_REQUEST_STATUS_SUGGESTIONS, builder))
+                                .executes(context -> ae2QueueReplay(
+                                    context.getSource(),
+                                    runtime,
+                                    StringArgumentType.getString(context, "status"),
+                                    DEFAULT_AE2_REPLAY_LIMIT
+                                ))
+                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(context -> ae2QueueReplay(
+                                        context.getSource(),
+                                        runtime,
+                                        StringArgumentType.getString(context, "status"),
+                                        IntegerArgumentType.getInteger(context, "limit")
+                                    )))))
+                        .then(Commands.literal("delete")
+                            .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                                .executes(context -> ae2QueueDelete(
+                                    context.getSource(),
+                                    runtime,
+                                    IntegerArgumentType.getInteger(context, "id")
+                                ))))
+                        .then(Commands.literal("done")
+                            .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                                .executes(context -> ae2QueueDone(
+                                    context.getSource(),
+                                    runtime,
+                                    IntegerArgumentType.getInteger(context, "id"),
+                                    "Completed manually"
+                                ))
+                                .then(Commands.argument("message", StringArgumentType.greedyString())
+                                    .executes(context -> ae2QueueDone(
+                                        context.getSource(),
+                                        runtime,
+                                        IntegerArgumentType.getInteger(context, "id"),
+                                        StringArgumentType.getString(context, "message")
+                                    )))))
+                        .then(Commands.literal("cancel")
+                            .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                                .executes(context -> ae2QueueCancel(
+                                    context.getSource(),
+                                    runtime,
+                                    IntegerArgumentType.getInteger(context, "id"),
+                                    "Canceled manually"
+                                ))
+                                .then(Commands.argument("reason", StringArgumentType.greedyString())
+                                    .executes(context -> ae2QueueCancel(
+                                        context.getSource(),
+                                        runtime,
+                                        IntegerArgumentType.getInteger(context, "id"),
+                                        StringArgumentType.getString(context, "reason")
+                                    )))))
+                        .then(Commands.literal("stats")
+                            .executes(context -> ae2QueueStats(context.getSource(), runtime)))
+                        .then(Commands.literal("purge")
+                            .executes(context -> ae2QueuePurge(context.getSource(), runtime, 100))
+                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 1000))
+                                .executes(context -> ae2QueuePurge(
+                                    context.getSource(),
+                                    runtime,
+                                    IntegerArgumentType.getInteger(context, "limit")
+                                ))))
+                        .then(Commands.literal("fail")
+                            .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                                .then(Commands.argument("reason", StringArgumentType.greedyString())
+                                    .executes(context -> ae2QueueFail(
+                                        context.getSource(),
+                                        runtime,
+                                        IntegerArgumentType.getInteger(context, "id"),
+                                        StringArgumentType.getString(context, "reason")
+                                    )))))
+                        .then(Commands.literal("history")
+                            .executes(context -> ae2QueueHistory(context.getSource(), runtime, DEFAULT_AE2_HISTORY_LIMIT))
+                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                                .executes(context -> ae2QueueHistory(
+                                    context.getSource(),
+                                    runtime,
+                                    IntegerArgumentType.getInteger(context, "limit")
+                                )))
+                            .then(Commands.argument("status", StringArgumentType.word())
+                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(AE2_REQUEST_STATUS_SUGGESTIONS, builder))
+                                .executes(context -> ae2QueueHistoryByStatus(
+                                    context.getSource(),
+                                    runtime,
+                                    StringArgumentType.getString(context, "status"),
+                                    DEFAULT_AE2_HISTORY_LIMIT
+                                ))
+                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                                    .executes(context -> ae2QueueHistoryByStatus(
+                                        context.getSource(),
+                                        runtime,
+                                        StringArgumentType.getString(context, "status"),
+                                        IntegerArgumentType.getInteger(context, "limit")
+                                    )))))
+                        .then(Commands.literal("export")
+                            .executes(context -> ae2QueueExport(context.getSource(), runtime, DEFAULT_AE2_EXPORT_LIMIT))
+                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 100))
+                                .executes(context -> ae2QueueExport(
+                                    context.getSource(),
+                                    runtime,
+                                    IntegerArgumentType.getInteger(context, "limit")
+                                ))))
+                    .then(Commands.literal("dispatch")
+                        .executes(context -> ae2Dispatch(context.getSource(), runtime, DEFAULT_AE2_DISPATCH_LIMIT))
+                        .then(Commands.argument("limit", IntegerArgumentType.integer(1, 25))
+                            .executes(context -> ae2Dispatch(
                                 context.getSource(),
                                 runtime,
                                 IntegerArgumentType.getInteger(context, "limit")
@@ -538,6 +701,66 @@ public final class AIPlayerCommands {
 
 
 
+
+    private static int moduleAudit(CommandSourceStack source, AIPlayerRuntime runtime) {
+        boolean envOverride = runtime.isModulesEnvOverrideActive();
+        StringJoiner registered = new StringJoiner(", ");
+        runtime.getRegisteredModules().forEach(registered::add);
+
+        StringJoiner enabled = new StringJoiner(", ");
+        runtime.getEnabledModules().forEach(enabled::add);
+
+        String stored = runtime.getStoredEnabledModules()
+            .map(values -> values.isEmpty() ? "[]" : values.toString())
+            .orElse("<none>");
+
+        source.sendSuccess(
+            () -> Component.literal(
+                "Module audit: envOverride=" + envOverride
+                    + " registered=[" + registered + "]"
+                    + " enabled=[" + enabled + "]"
+                    + " sqlite=" + stored
+            ),
+            false
+        );
+        return 1;
+    }
+
+
+    private static int moduleReconcile(CommandSourceStack source, AIPlayerRuntime runtime) {
+        String action = runtime.reconcileModulesWithStorage();
+        if ("env-override".equals(action)) {
+            source.sendFailure(Component.literal("Module reconcile bloque: override environnement AIPLAYER_MODULES actif"));
+            return 0;
+        }
+
+        StringJoiner enabled = new StringJoiner(", ");
+        runtime.getEnabledModules().forEach(enabled::add);
+        source.sendSuccess(
+            () -> Component.literal("Module reconcile action=" + action + " enabled=[" + enabled + "]"),
+            false
+        );
+        return 1;
+    }
+    private static int moduleDrift(CommandSourceStack source, AIPlayerRuntime runtime) {
+        List<String> enabled = runtime.getEnabledModules();
+        Optional<List<String>> storedOptional = runtime.getStoredEnabledModules();
+        if (storedOptional.isEmpty()) {
+            source.sendFailure(Component.literal("Module drift: aucune config SQLite disponible."));
+            return 0;
+        }
+
+        List<String> stored = storedOptional.get();
+        String enabledText = enabled.isEmpty() ? "[]" : enabled.toString();
+        String storedText = stored.isEmpty() ? "[]" : stored.toString();
+        boolean drift = !enabled.equals(stored);
+
+        source.sendSuccess(
+            () -> Component.literal("Module drift=" + drift + " enabled=" + enabledText + " sqlite=" + storedText),
+            false
+        );
+        return 1;
+    }
     private static int moduleSource(CommandSourceStack source, AIPlayerRuntime runtime) {
         boolean envOverride = runtime.isModulesEnvOverrideActive();
         Optional<List<String>> stored = runtime.getStoredEnabledModules();
@@ -559,7 +782,23 @@ public final class AIPlayerCommands {
         source.sendSuccess(() -> Component.literal("Module status: " + moduleName + " enabled=" + enabled), false);
         return 1;
     }
+    private static int clearModuleStorage(CommandSourceStack source, AIPlayerRuntime runtime) {
+        boolean cleared = runtime.clearStoredEnabledModules();
+        if (!cleared) {
+            source.sendFailure(Component.literal("Aucune config modules en SQLite"));
+            return 0;
+        }
 
+        source.sendSuccess(() -> Component.literal("Configuration modules SQLite effacee"), false);
+        return 1;
+    }
+    private static int saveModules(CommandSourceStack source, AIPlayerRuntime runtime) {
+        runtime.saveModulesToStorage();
+        StringJoiner enabled = new StringJoiner(", ");
+        runtime.getEnabledModules().forEach(enabled::add);
+        source.sendSuccess(() -> Component.literal("Modules saved to storage: enabled=[" + enabled + "]"), false);
+        return 1;
+    }
     private static int reloadModules(CommandSourceStack source, AIPlayerRuntime runtime) {
         boolean reloaded = runtime.reloadModulesFromStorage();
         if (!reloaded) {
@@ -749,6 +988,238 @@ public final class AIPlayerCommands {
 
         source.sendSuccess(
             () -> Component.literal("AE2 queue pending=" + pendingCount + " -> " + joiner),
+            false
+        );
+        return 1;
+    }
+
+
+
+
+    private static int ae2QueueHistory(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        List<BotMemoryRepository.AE2CraftRequest> requests = runtime.getAe2CraftRequestHistory(limit);
+        if (requests.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("AE2 queue history: empty"), false);
+            return 1;
+        }
+
+        StringJoiner joiner = new StringJoiner(" | ");
+        requests.forEach(request -> joiner.add(
+            "#" + request.id() + " " + request.status() + " " + request.itemId() + " x" + request.quantity()
+        ));
+
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue history -> " + joiner),
+            false
+        );
+        return 1;
+    }
+
+
+    private static int ae2QueueHistoryByStatus(CommandSourceStack source, AIPlayerRuntime runtime, String statusValue, int limit) {
+        String status = statusValue.toUpperCase(Locale.ROOT);
+        if (!AE2_REQUEST_STATUS_SUGGESTIONS.contains(status)) {
+            source.sendFailure(Component.literal("Statut AE2 invalide: " + statusValue + " (PENDING|DISPATCHED|FAILED|DONE|CANCELED)"));
+            return 0;
+        }
+
+        List<BotMemoryRepository.AE2CraftRequest> requests = runtime.getAe2CraftRequestHistoryByStatus(status, limit);
+        if (requests.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("AE2 queue history status=" + status + ": empty"), false);
+            return 1;
+        }
+
+        StringJoiner joiner = new StringJoiner(" | ");
+        requests.forEach(request -> joiner.add(
+            "#" + request.id() + " " + request.status() + " " + request.itemId() + " x" + request.quantity()
+        ));
+
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue history status=" + status + " -> " + joiner),
+            false
+        );
+        return 1;
+    }
+    private static int ae2QueueExport(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        List<BotMemoryRepository.AE2CraftRequest> requests = runtime.getAe2CraftRequestHistory(limit);
+        if (requests.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("AE2 queue export: empty"), false);
+            return 1;
+        }
+
+        StringJoiner joiner = new StringJoiner(" | ");
+        requests.forEach(request -> joiner.add(
+            "#" + request.id()
+                + ";" + request.status()
+                + ";" + request.itemId()
+                + ";x" + request.quantity()
+                + ";by=" + request.requestedBy()
+        ));
+
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue export count=" + requests.size() + " -> " + joiner),
+            false
+        );
+        return 1;
+    }
+    private static int ae2QueuePurge(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        int purged = runtime.purgeClosedAe2CraftRequests(limit);
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue purge: purged=" + purged + " pending=" + pending),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2QueueStats(CommandSourceStack source, AIPlayerRuntime runtime) {
+        int pending = runtime.countAe2CraftRequestsByStatus("PENDING");
+        int dispatched = runtime.countAe2CraftRequestsByStatus("DISPATCHED");
+        int failed = runtime.countAe2CraftRequestsByStatus("FAILED");
+        int done = runtime.countAe2CraftRequestsByStatus("DONE");
+        int canceled = runtime.countAe2CraftRequestsByStatus("CANCELED");
+        int total = pending + dispatched + failed + done + canceled;
+
+        source.sendSuccess(
+            () -> Component.literal(
+                "AE2 queue stats total=" + total
+                    + " pending=" + pending
+                    + " dispatched=" + dispatched
+                    + " failed=" + failed
+                    + " done=" + done
+                    + " canceled=" + canceled
+            ),
+            false
+        );
+        return 1;
+    }
+
+
+    private static int ae2QueueDelete(CommandSourceStack source, AIPlayerRuntime runtime, int requestId) {
+        boolean deleted = runtime.deleteAe2CraftRequest(requestId);
+        if (!deleted) {
+            source.sendFailure(Component.literal("AE2 queue delete impossible: id=" + requestId + " (introuvable ou encore PENDING)"));
+            return 0;
+        }
+
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue delete: id=" + requestId + " pending=" + pending),
+            false
+        );
+        return 1;
+    }
+    private static int ae2QueueCancel(CommandSourceStack source, AIPlayerRuntime runtime, int requestId, String reason) {
+        boolean canceled = runtime.cancelAe2CraftRequest(requestId, reason);
+        if (!canceled) {
+            source.sendFailure(Component.literal("AE2 queue cancel impossible: id=" + requestId + " (introuvable, deja DONE ou deja CANCELED)"));
+            return 0;
+        }
+
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue cancel: id=" + requestId + " pending=" + pending + " reason=" + reason),
+            false
+        );
+        return 1;
+    }
+    private static int ae2QueueDone(CommandSourceStack source, AIPlayerRuntime runtime, int requestId, String message) {
+        boolean done = runtime.doneAe2CraftRequest(requestId, message);
+        if (!done) {
+            source.sendFailure(Component.literal("AE2 queue done impossible: id=" + requestId + " (introuvable)"));
+            return 0;
+        }
+
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue done: id=" + requestId + " pending=" + pending + " message=" + message),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2QueueFail(CommandSourceStack source, AIPlayerRuntime runtime, int requestId, String reason) {
+        boolean failed = runtime.failAe2CraftRequest(requestId, reason);
+        if (!failed) {
+            source.sendFailure(Component.literal("AE2 queue fail impossible: id=" + requestId + " (introuvable)"));
+            return 0;
+        }
+
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue fail: id=" + requestId + " pending=" + pending + " reason=" + reason),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2QueueReplayAll(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        int replayed = runtime.replayAe2CraftRequests(limit);
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue replay all: replayed=" + replayed + " pending=" + pending),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2QueueReplay(CommandSourceStack source, AIPlayerRuntime runtime, String statusValue, int limit) {
+        String status = statusValue.toUpperCase(Locale.ROOT);
+        if (!AE2_REQUEST_STATUS_SUGGESTIONS.contains(status)) {
+            source.sendFailure(Component.literal("Statut AE2 invalide: " + statusValue + " (PENDING|DISPATCHED|FAILED|DONE|CANCELED)"));
+            return 0;
+        }
+
+        if ("PENDING".equals(status)) {
+            source.sendFailure(Component.literal("AE2 queue replay refuse: status=PENDING"));
+            return 0;
+        }
+
+        int replayed = runtime.replayAe2CraftRequestsByStatus(status, limit);
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue replay status=" + status + " replayed=" + replayed + " pending=" + pending),
+            false
+        );
+        return 1;
+    }
+    private static int ae2QueueRetry(CommandSourceStack source, AIPlayerRuntime runtime, int requestId) {
+        boolean retried = runtime.retryAe2CraftRequest(requestId);
+        if (!retried) {
+            source.sendFailure(Component.literal("AE2 queue retry impossible: id=" + requestId + " (introuvable ou deja PENDING)"));
+            return 0;
+        }
+
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue retry: id=" + requestId + " pending=" + pending),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2QueueClear(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        int cleared = runtime.clearNonPendingAe2CraftRequests(limit);
+        int pending = runtime.countPendingAe2CraftRequests();
+        source.sendSuccess(
+            () -> Component.literal("AE2 queue clear: cleared=" + cleared + " pending=" + pending),
+            false
+        );
+        return 1;
+    }
+
+    private static int ae2Dispatch(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        if (!runtime.isAe2Available()) {
+            source.sendFailure(Component.literal("AE2 n'est pas charge"));
+            return 0;
+        }
+
+        int before = runtime.countPendingAe2CraftRequests();
+        int dispatched = runtime.dispatchPendingAe2CraftRequests(limit);
+        int after = runtime.countPendingAe2CraftRequests();
+
+        source.sendSuccess(
+            () -> Component.literal("AE2 dispatch: dispatched=" + dispatched + " pending=" + before + " -> " + after),
             false
         );
         return 1;

@@ -124,6 +124,43 @@ public final class AIPlayerRuntime {
     }
 
 
+
+
+    public boolean clearStoredEnabledModules() {
+        boolean cleared = this.memoryRepository.clearEnabledModules();
+        if (cleared) {
+            this.memoryRepository.recordAction("clear-modules-storage", "enabled_modules");
+        }
+        return cleared;
+    }
+
+    public String reconcileModulesWithStorage() {
+        if (hasEnabledModulesEnvOverride()) {
+            return "env-override";
+        }
+
+        List<String> enabled = this.moduleManager.getEnabledModuleNames();
+        Optional<List<String>> storedOptional = this.memoryRepository.loadEnabledModules();
+
+        if (storedOptional.isEmpty()) {
+            this.memoryRepository.saveEnabledModules(enabled);
+            this.memoryRepository.recordAction("reconcile-modules", "saved-active");
+            return "saved-active";
+        }
+
+        List<String> stored = storedOptional.get();
+        if (enabled.equals(stored)) {
+            return "in-sync";
+        }
+
+        this.moduleManager.setEnabledModules(stored);
+        this.memoryRepository.recordAction("reconcile-modules", "reloaded-from-storage");
+        return "reloaded-from-storage";
+    }
+    public void saveModulesToStorage() {
+        this.memoryRepository.saveEnabledModules(this.moduleManager.getEnabledModuleNames());
+        this.memoryRepository.recordAction("save-modules", String.join(",", this.moduleManager.getEnabledModuleNames()));
+    }
     public boolean reloadModulesFromStorage() {
         if (hasEnabledModulesEnvOverride()) {
             return false;
@@ -326,6 +363,97 @@ public final class AIPlayerRuntime {
         return this.memoryRepository.countPendingAe2CraftRequests();
     }
 
+    public List<BotMemoryRepository.AE2CraftRequest> getAe2CraftRequestHistory(int limit) {
+        return this.memoryRepository.loadAe2CraftRequestHistory(limit);
+    }
+
+    public int countAe2CraftRequestsByStatus(String status) {
+        return this.memoryRepository.countAe2CraftRequestsByStatus(status);
+    }
+
+    public List<BotMemoryRepository.AE2CraftRequest> getAe2CraftRequestHistoryByStatus(String status, int limit) {
+        return this.memoryRepository.loadAe2CraftRequestHistoryByStatus(status, limit);
+    }
+
+    public int replayAe2CraftRequests(int limit) {
+        int remaining = Math.max(1, Math.min(200, limit));
+        int replayed = 0;
+        List<String> statuses = List.of("DISPATCHED", "FAILED", "DONE", "CANCELED");
+        for (String status : statuses) {
+            if (remaining <= 0) {
+                break;
+            }
+            int moved = this.memoryRepository.replayAe2CraftRequestsByStatus(status, remaining);
+            replayed += moved;
+            remaining -= moved;
+        }
+        if (replayed > 0) {
+            this.memoryRepository.recordAction("ae2-craft-replay", "status=ALL replayed=" + replayed + " limit=" + limit);
+        }
+        return replayed;
+    }
+
+    public int replayAe2CraftRequestsByStatus(String status, int limit) {
+        int replayed = this.memoryRepository.replayAe2CraftRequestsByStatus(status, limit);
+        if (replayed > 0) {
+            this.memoryRepository.recordAction("ae2-craft-replay", "status=" + status + " replayed=" + replayed + " limit=" + limit);
+        }
+        return replayed;
+    }
+    public boolean retryAe2CraftRequest(long requestId) {
+        boolean retried = this.memoryRepository.retryAe2CraftRequest(requestId);
+        if (retried) {
+            this.memoryRepository.recordAction("ae2-craft-retry", "id=" + requestId);
+        }
+        return retried;
+    }
+
+    public boolean deleteAe2CraftRequest(long requestId) {
+        boolean deleted = this.memoryRepository.deleteAe2CraftRequest(requestId);
+        if (deleted) {
+            this.memoryRepository.recordAction("ae2-craft-delete", "id=" + requestId);
+        }
+        return deleted;
+    }
+
+    public boolean failAe2CraftRequest(long requestId, String reason) {
+        boolean failed = this.memoryRepository.updateAe2CraftRequestStatus(requestId, "FAILED", reason);
+        if (failed) {
+            this.memoryRepository.recordAction("ae2-craft-fail", "id=" + requestId + " reason=" + reason);
+        }
+        return failed;
+    }
+    public boolean cancelAe2CraftRequest(long requestId, String reason) {
+        boolean canceled = this.memoryRepository.cancelAe2CraftRequest(requestId, reason);
+        if (canceled) {
+            this.memoryRepository.recordAction("ae2-craft-cancel", "id=" + requestId + " reason=" + reason);
+        }
+        return canceled;
+    }
+    public boolean doneAe2CraftRequest(long requestId, String message) {
+        boolean done = this.memoryRepository.updateAe2CraftRequestStatus(requestId, "DONE", message);
+        if (done) {
+            this.memoryRepository.recordAction("ae2-craft-done", "id=" + requestId + " message=" + message);
+        }
+        return done;
+    }
+
+    public int clearNonPendingAe2CraftRequests(int limit) {
+        int cleared = this.memoryRepository.clearNonPendingAe2CraftRequests(limit);
+        if (cleared > 0) {
+            this.memoryRepository.recordAction("ae2-craft-clear", "cleared=" + cleared + " limit=" + limit);
+        }
+        return cleared;
+    }
+
+    public int purgeClosedAe2CraftRequests(int limit) {
+        int purged = this.memoryRepository.purgeClosedAe2CraftRequests(limit);
+        if (purged > 0) {
+            this.memoryRepository.recordAction("ae2-craft-purge", "purged=" + purged + " limit=" + limit);
+        }
+        return purged;
+    }
+
     public boolean spawnMarker(ServerLevel level, Vec3 position) {
         return spawnMarker(level, position, "AIPlayer Bot");
     }
@@ -408,18 +536,33 @@ public final class AIPlayerRuntime {
         }
     }
 
+
+    public int dispatchPendingAe2CraftRequests(int limit) {
+        int safeLimit = Math.max(1, Math.min(100, limit));
+        int dispatched = 0;
+
+        if (!isAe2Available()) {
+            return 0;
+        }
+
+        for (BotMemoryRepository.AE2CraftRequest request : this.memoryRepository.loadPendingAe2CraftRequests(safeLimit)) {
+            String resultMessage = "Dispatched to AE2 pipeline item=" + request.itemId() + " qty=" + request.quantity();
+            boolean updated = this.memoryRepository.updateAe2CraftRequestStatus(request.id(), "DISPATCHED", resultMessage);
+            if (updated) {
+                this.memoryRepository.recordAction("ae2-craft-dispatch", "id=" + request.id() + " " + resultMessage);
+                dispatched++;
+            }
+        }
+
+        return dispatched;
+    }
+
     private void processPendingAe2CraftRequests() {
         if (!isAe2Available()) {
             return;
         }
 
-        for (BotMemoryRepository.AE2CraftRequest request : this.memoryRepository.loadPendingAe2CraftRequests(AE2_QUEUE_BATCH_SIZE)) {
-            String resultMessage = "Dispatched to AE2 pipeline item=" + request.itemId() + " qty=" + request.quantity();
-            boolean updated = this.memoryRepository.updateAe2CraftRequestStatus(request.id(), "DISPATCHED", resultMessage);
-            if (updated) {
-                this.memoryRepository.recordAction("ae2-craft-dispatch", "id=" + request.id() + " " + resultMessage);
-            }
-        }
+        dispatchPendingAe2CraftRequests(AE2_QUEUE_BATCH_SIZE);
     }
 
     public record BotAskResult(long interactionId, String response) {
