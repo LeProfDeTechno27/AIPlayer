@@ -78,6 +78,19 @@ public final class BotMemoryRepository {
         return Optional.empty();
     }
 
+
+    public boolean clearEnabledModules() {
+        String sql = "DELETE FROM bot_config WHERE config_key = 'enabled_modules'";
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to clear enabled modules", exception);
+        }
+
+        return false;
+    }
     public void saveEnabledModules(List<String> moduleNames) {
         String sql = """
             INSERT INTO bot_config (config_key, config_value, updated_at)
@@ -560,6 +573,96 @@ public final class BotMemoryRepository {
         return requests;
     }
 
+    public List<AE2CraftRequest> loadAe2CraftRequestHistory(int limit) {
+        int safeLimit = Math.max(1, Math.min(200, limit));
+        String sql = """
+            SELECT id, item_id, quantity, status, requested_by, created_at, updated_at, result_message
+            FROM ae2_craft_requests
+            ORDER BY id DESC
+            LIMIT ?
+            """;
+
+        List<AE2CraftRequest> requests = new ArrayList<>();
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, safeLimit);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    requests.add(new AE2CraftRequest(
+                        resultSet.getLong("id"),
+                        resultSet.getString("item_id"),
+                        resultSet.getInt("quantity"),
+                        resultSet.getString("status"),
+                        resultSet.getString("requested_by"),
+                        resultSet.getString("created_at"),
+                        resultSet.getString("updated_at"),
+                        resultSet.getString("result_message")
+                    ));
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load AE2 craft request history", exception);
+        }
+
+        return requests;
+    }
+
+    public List<AE2CraftRequest> loadAe2CraftRequestHistoryByStatus(String status, int limit) {
+        int safeLimit = Math.max(1, Math.min(200, limit));
+        String sql = """
+            SELECT id, item_id, quantity, status, requested_by, created_at, updated_at, result_message
+            FROM ae2_craft_requests
+            WHERE UPPER(status) = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """;
+
+        List<AE2CraftRequest> requests = new ArrayList<>();
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, status.toUpperCase());
+            statement.setInt(2, safeLimit);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    requests.add(new AE2CraftRequest(
+                        resultSet.getLong("id"),
+                        resultSet.getString("item_id"),
+                        resultSet.getInt("quantity"),
+                        resultSet.getString("status"),
+                        resultSet.getString("requested_by"),
+                        resultSet.getString("created_at"),
+                        resultSet.getString("updated_at"),
+                        resultSet.getString("result_message")
+                    ));
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load AE2 craft request history by status={}", status, exception);
+        }
+
+        return requests;
+    }
+
+    public int countAe2CraftRequestsByStatus(String status) {
+        String sql = "SELECT COUNT(*) AS count FROM ae2_craft_requests WHERE UPPER(status) = ?";
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, status.toUpperCase());
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return resultSet.getInt("count");
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to count AE2 craft requests by status={}", status, exception);
+        }
+
+        return 0;
+    }
+
     public int countPendingAe2CraftRequests() {
         String sql = "SELECT COUNT(*) AS count FROM ae2_craft_requests WHERE status = 'PENDING'";
 
@@ -576,6 +679,133 @@ public final class BotMemoryRepository {
         return 0;
     }
 
+    public int purgeClosedAe2CraftRequests(int limit) {
+        int safeLimit = Math.max(1, Math.min(1000, limit));
+        String sql = """
+            DELETE FROM ae2_craft_requests
+            WHERE id IN (
+                SELECT id
+                FROM ae2_craft_requests
+                WHERE status IN ('DONE','FAILED','CANCELED')
+                ORDER BY id ASC
+                LIMIT ?
+            )
+            """;
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, safeLimit);
+            return statement.executeUpdate();
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to purge closed AE2 craft requests limit={}", safeLimit, exception);
+        }
+
+        return 0;
+    }
+
+    public int clearNonPendingAe2CraftRequests(int limit) {
+        int safeLimit = Math.max(1, Math.min(500, limit));
+        String sql = """
+            DELETE FROM ae2_craft_requests
+            WHERE id IN (
+                SELECT id
+                FROM ae2_craft_requests
+                WHERE status <> 'PENDING'
+                ORDER BY id ASC
+                LIMIT ?
+            )
+            """;
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, safeLimit);
+            return statement.executeUpdate();
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to clear non-pending AE2 craft requests limit={}", safeLimit, exception);
+        }
+
+        return 0;
+    }
+
+    public boolean deleteAe2CraftRequest(long requestId) {
+        String sql = "DELETE FROM ae2_craft_requests WHERE id = ? AND status <> 'PENDING'";
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setLong(1, requestId);
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to delete AE2 craft request id={}", requestId, exception);
+        }
+
+        return false;
+    }
+    public int replayAe2CraftRequestsByStatus(String status, int limit) {
+        int safeLimit = Math.max(1, Math.min(200, limit));
+        String safeStatus = status.toUpperCase();
+        String sql = """
+            UPDATE ae2_craft_requests
+            SET status = 'PENDING', result_message = ?, updated_at = ?
+            WHERE id IN (
+                SELECT id
+                FROM ae2_craft_requests
+                WHERE UPPER(status) = ? AND status <> 'PENDING'
+                ORDER BY id ASC
+                LIMIT ?
+            )
+            """;
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, "Replay requested from " + safeStatus);
+            statement.setString(2, Instant.now().toString());
+            statement.setString(3, safeStatus);
+            statement.setInt(4, safeLimit);
+            return statement.executeUpdate();
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to replay AE2 craft requests status={} limit={}", safeStatus, safeLimit, exception);
+        }
+
+        return 0;
+    }
+    public boolean retryAe2CraftRequest(long requestId) {
+        String sql = """
+            UPDATE ae2_craft_requests
+            SET status = 'PENDING', result_message = ?, updated_at = ?
+            WHERE id = ? AND status <> 'PENDING'
+            """;
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, "Retry requested");
+            statement.setString(2, Instant.now().toString());
+            statement.setLong(3, requestId);
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to retry AE2 craft request id={}", requestId, exception);
+        }
+
+        return false;
+    }
+    public boolean cancelAe2CraftRequest(long requestId, String reason) {
+        String sql = """
+            UPDATE ae2_craft_requests
+            SET status = 'CANCELED', result_message = ?, updated_at = ?
+            WHERE id = ? AND status IN ('PENDING', 'DISPATCHED', 'FAILED')
+            """;
+
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, reason);
+            statement.setString(2, Instant.now().toString());
+            statement.setLong(3, requestId);
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to cancel AE2 craft request id={}", requestId, exception);
+        }
+
+        return false;
+    }
     public boolean updateAe2CraftRequestStatus(long requestId, String status, String resultMessage) {
         String sql = """
             UPDATE ae2_craft_requests
