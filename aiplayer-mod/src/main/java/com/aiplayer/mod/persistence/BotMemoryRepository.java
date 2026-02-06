@@ -1005,7 +1005,16 @@ public final class BotMemoryRepository {
     }
 
     private Connection openConnection() throws SQLException {
-        return DriverManager.getConnection("jdbc:sqlite:" + this.databasePath.toAbsolutePath());
+        Connection connection = DriverManager.getConnection("jdbc:sqlite:" + this.databasePath.toAbsolutePath());
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("PRAGMA journal_mode=WAL");
+            statement.execute("PRAGMA synchronous=NORMAL");
+            statement.execute("PRAGMA temp_store=MEMORY");
+            statement.execute("PRAGMA busy_timeout=3000");
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to apply SQLite pragmas", exception);
+        }
+        return connection;
     }
 
     private void ensureParentDirectory() {
@@ -1107,6 +1116,7 @@ public final class BotMemoryRepository {
     ) {
     }
 }
+
 
 
 

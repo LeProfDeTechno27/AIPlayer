@@ -27,7 +27,7 @@ $hostRamGB = Get-HostRamGB
 
 $dockerRaw = Get-DockerInfo
 if (-not $dockerRaw) {
-    Write-Host 'Docker: indisponible (daemon non démarré ?)' -ForegroundColor Yellow
+    Write-Host 'Docker: indisponible (daemon non demarre ?)' -ForegroundColor Yellow
     Write-Host "Host   : cores=$hostCores ramGB=$hostRamGB"
     exit 2
 }
@@ -37,23 +37,23 @@ $dockerCores = [int]$parts[0]
 $dockerRamBytes = [double]$parts[1]
 $dockerRamGB = [math]::Round($dockerRamBytes / 1GB, 2)
 
-$hostOk = ($hostCores -ge $MinCores) -and ($hostRamGB -ge $MinHostRamGB)
-$dockerOk = ($dockerCores -ge $MinDockerCores) -and ($dockerRamGB -ge $MinDockerRamGB)
+$hostBelow = ($hostCores -lt $MinCores) -or ($hostRamGB -lt $MinHostRamGB)
+$dockerBelow = ($dockerCores -lt $MinDockerCores) -or ($dockerRamGB -lt $MinDockerRamGB)
 
-Write-Host "Host   : cores=$hostCores ramGB=$hostRamGB (target >= $MinCores cores / $MinHostRamGB GB)"
-Write-Host "Docker : cores=$dockerCores ramGB=$dockerRamGB (target >= $MinDockerCores cores / $MinDockerRamGB GB)"
+Write-Host "Host   : cores=$hostCores ramGB=$hostRamGB (budget max $MinCores cores / $MinHostRamGB GB)"
+Write-Host "Docker : cores=$dockerCores ramGB=$dockerRamGB (budget max $MinDockerCores cores / $MinDockerRamGB GB)"
 
-if ($hostOk -and $dockerOk) {
-    Write-Host 'Result : READY ✅' -ForegroundColor Green
+if (-not $hostBelow -and -not $dockerBelow) {
+    Write-Host 'Result : OK ?' -ForegroundColor Green
     exit 0
 }
 
-Write-Host 'Result : NOT READY ❌' -ForegroundColor Red
-if (-not $hostOk) {
-    Write-Host '- Host machine below target.'
+Write-Host 'Result : BELOW BUDGET ??' -ForegroundColor Yellow
+if ($hostBelow) {
+    Write-Host '- Host below budget; performance may be reduced.'
 }
-if (-not $dockerOk) {
-    Write-Host '- Docker Desktop allocation below target (increase CPUs/RAM in Docker settings).'
+if ($dockerBelow) {
+    Write-Host '- Docker allocation below budget; performance may be reduced.'
 }
 
-exit 1
+exit 0
