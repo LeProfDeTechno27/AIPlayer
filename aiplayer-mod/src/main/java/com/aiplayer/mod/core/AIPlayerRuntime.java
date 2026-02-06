@@ -18,7 +18,10 @@ import net.minecraft.world.phys.Vec3;
 import java.time.Duration;
 import java.time.Instant;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -52,6 +55,13 @@ public final class AIPlayerRuntime {
     private Instant lastDegradedDecisionAt;
     private Instant lastDegradeLogAt;
     private final Duration degradedDecisionInterval = resolveDegradedDecisionInterval();
+    private final double maxMspt = resolveMaxMspt();
+    private Instant lastMsptLogAt;
+    private final Duration pathCacheTtl = resolvePathCacheTtl();
+    private final Duration recipeCacheTtl = resolveRecipeCacheTtl();
+    private Vec3 lastMoveTarget;
+    private Instant lastMoveTargetAt;
+    private final Map<String, CachedRecipeRequest> recipeCache = new HashMap<>();
     private long survivalMinutes;
     private boolean survivalDayLogged;
     private String currentObjective;
@@ -133,10 +143,13 @@ public final class AIPlayerRuntime {
         this.moduleManager.tickEnabled();
         processBotTaskLifecycle();
         processPendingAe2CraftRequests();
+        boolean allowBrain = !shouldThrottleForMspt(level, now);
         int bufferSize = this.memoryRepository.getActionBufferSize();
         int bufferWarn = this.memoryRepository.getActionBufferWarnThreshold();
         int degradeThreshold = Math.max(1, bufferWarn / 2);
-        if (bufferSize >= bufferWarn) {
+        if (!allowBrain) {
+            lastDegradedDecisionAt = null;
+        } else if (bufferSize >= bufferWarn) {
             this.memoryRepository.recordAction("bot-brain-throttle", "action-buffer size=" + bufferSize);
         } else if (bufferSize >= degradeThreshold) {
             if (shouldAllowDegradedDecision(now)) {
@@ -152,6 +165,22 @@ public final class AIPlayerRuntime {
         processSurvivalLoop(level);
         recordDecisionStats(now);
         recordTickLog(now);
+    }
+
+    private boolean shouldThrottleForMspt(ServerLevel level, Instant now) {
+        if (maxMspt <= 0.0d) {
+            return false;
+        }
+        double mspt = level.getServer().getAverageTickTime();
+        if (mspt <= maxMspt) {
+            return false;
+        }
+        if (lastMsptLogAt == null || Duration.between(lastMsptLogAt, now).compareTo(Duration.ofMinutes(1)) >= 0) {
+            String formatted = String.format(Locale.ROOT, "%.2f", mspt);
+            this.memoryRepository.recordAction("bot-brain-mspt-throttle", "mspt=" + formatted + " limit=" + maxMspt);
+            lastMsptLogAt = now;
+        }
+        return true;
     }
 
     private void recordDecisionStats(Instant now) {
@@ -549,8 +578,16 @@ public final class AIPlayerRuntime {
     }
 
     public long queueAe2CraftRequest(String itemId, int quantity, String requestedBy) {
+        String key = itemId + ":" + quantity;
+        Instant now = Instant.now();
+        CachedRecipeRequest cached = recipeCache.get(key);
+        if (cached != null && Duration.between(cached.cachedAt(), now).compareTo(recipeCacheTtl) < 0) {
+            this.memoryRepository.recordAction("ae2-craft-cache", "item=" + itemId + " qty=" + quantity + " id=" + cached.requestId());
+            return cached.requestId();
+        }
         long requestId = this.memoryRepository.enqueueAe2CraftRequest(itemId, quantity, requestedBy);
         if (requestId > 0) {
+            recipeCache.put(key, new CachedRecipeRequest(requestId, now));
             this.memoryRepository.recordAction(
                 "ae2-craft-enqueue",
                 "id=" + requestId + " item=" + itemId + " qty=" + quantity + " by=" + requestedBy
@@ -728,11 +765,9 @@ public final class AIPlayerRuntime {
 
         switch (decision.action()) {
             case MOVE -> {
-                double dx = bot.getX() + (bot.getRandom().nextDouble() * 8.0 - 4.0);
-                double dz = bot.getZ() + (bot.getRandom().nextDouble() * 8.0 - 4.0);
-                double dy = bot.getY();
-                bot.getNavigation().moveTo(dx, dy, dz, 1.0);
-                this.memoryRepository.recordAction("bot-brain-action", "move target=" + dx + "," + dy + "," + dz);
+                Vec3 target = resolveMoveTarget(bot, Instant.now());
+                bot.getNavigation().moveTo(target.x, target.y, target.z, 1.0);
+                this.memoryRepository.recordAction("bot-brain-action", "move target=" + target.x + "," + target.y + "," + target.z);
             }
             case INTERACT -> {
                 var player = level.getNearestPlayer(bot, 6.0);
@@ -747,6 +782,19 @@ public final class AIPlayerRuntime {
             case BUILD -> this.memoryRepository.recordAction("bot-brain-action", "build requested");
             case IDLE -> this.memoryRepository.recordAction("bot-brain-action", "idle");
         }
+    }
+
+    private Vec3 resolveMoveTarget(AIBotEntity bot, Instant now) {
+        if (lastMoveTarget != null && lastMoveTargetAt != null
+            && Duration.between(lastMoveTargetAt, now).compareTo(pathCacheTtl) < 0) {
+            return lastMoveTarget;
+        }
+        double dx = bot.getX() + (bot.getRandom().nextDouble() * 8.0 - 4.0);
+        double dz = bot.getZ() + (bot.getRandom().nextDouble() * 8.0 - 4.0);
+        double dy = bot.getY();
+        lastMoveTarget = new Vec3(dx, dy, dz);
+        lastMoveTargetAt = now;
+        return lastMoveTarget;
     }
 
     private void processSurvivalLoop(ServerLevel level) {
@@ -896,10 +944,48 @@ public final class AIPlayerRuntime {
     public record BotVitals(float health, float maxHealth, int hunger) {
     }
 
+    private record CachedRecipeRequest(long requestId, Instant cachedAt) {
+    }
 
     private boolean hasEnabledModulesEnvOverride() {
         String env = System.getenv("AIPLAYER_ENABLED_MODULES");
         return env != null && !env.isBlank();
+    }
+
+    private Duration resolvePathCacheTtl() {
+        String env = System.getenv("AIPLAYER_PATH_CACHE_SECONDS");
+        long seconds = 30;
+        if (env != null && !env.isBlank()) {
+            try {
+                seconds = Long.parseLong(env.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (seconds < 5) {
+            seconds = 5;
+        }
+        if (seconds > 300) {
+            seconds = 300;
+        }
+        return Duration.ofSeconds(seconds);
+    }
+
+    private Duration resolveRecipeCacheTtl() {
+        String env = System.getenv("AIPLAYER_RECIPE_CACHE_SECONDS");
+        long seconds = 120;
+        if (env != null && !env.isBlank()) {
+            try {
+                seconds = Long.parseLong(env.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (seconds < 30) {
+            seconds = 30;
+        }
+        if (seconds > 600) {
+            seconds = 600;
+        }
+        return Duration.ofSeconds(seconds);
     }
 
     private Duration resolveDecisionInterval() {
@@ -918,6 +1004,24 @@ public final class AIPlayerRuntime {
             seconds = 300;
         }
         return Duration.ofSeconds(seconds);
+    }
+
+    private double resolveMaxMspt() {
+        String env = System.getenv("AIPLAYER_MAX_MSPT");
+        double max = 50.0d;
+        if (env != null && !env.isBlank()) {
+            try {
+                max = Double.parseDouble(env.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (max < 20.0d) {
+            max = 20.0d;
+        }
+        if (max > 200.0d) {
+            max = 200.0d;
+        }
+        return max;
     }
 
     private Duration resolveDegradedDecisionInterval() {
