@@ -2,7 +2,7 @@
 
 ## Phase 1 : Définition
 - [x] Valider version NeoForge exacte (NeoForge 21.1.172 + MineColonies 1.1.1260-1.21.1-snapshot)
-- [x] Lister mods serveur (Ressource minecraft/mods)
+- [x] Lister mods serveur (Ressource minecraft/mods.zip)
 - [x] Décider : bot remplace Town Hall owner ou NPC dans colonie ? (owner)
 - [ ] Définir scope pédagogique (quoi apprendre aux élèves via bot ?)
 
@@ -66,6 +66,7 @@
 - [ ] Edge cases (respawn, path, conflicts, timeouts)
 - [ ] Documentation (README, wiki, guide Ollama)
 - [ ] Optimisations (batch LLM, cache path, async DB)
+
 
 
 
