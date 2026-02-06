@@ -16,6 +16,5 @@ ENV DATA_DIR=/data \
     BOOTSTRAP_NEOFORGE_DIR=/bootstrap/neoforge \
     BOOTSTRAP_CONFIG_DIR=/bootstrap/server-config
 
-USER 1000
 
 ENTRYPOINT ["/entrypoint.sh"]
