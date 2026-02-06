@@ -4,7 +4,9 @@ import com.aiplayer.mod.integrations.OllamaClient;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 public final class BotBrain {
@@ -30,8 +32,12 @@ public final class BotBrain {
     private final Duration cacheTtl;
     private final Duration decisionWindow;
     private final int maxDecisionsPerWindow;
+    private final Duration repeatCooldown;
+    private final int decisionCacheMaxEntries;
+    private final Map<String, CachedDecision> decisionCache;
     private Instant lastDecisionAt;
     private BotDecision lastDecision;
+    private String lastDecisionObjective;
     private BotState currentState = BotState.IDLE;
     private Instant decisionWindowStart;
     private int decisionsInWindow;
@@ -48,10 +54,24 @@ public final class BotBrain {
         this.cacheTtl = resolveCacheTtl();
         this.decisionWindow = resolveDecisionWindow();
         this.maxDecisionsPerWindow = resolveMaxDecisionsPerWindow();
+        this.repeatCooldown = resolveRepeatCooldown();
+        this.decisionCacheMaxEntries = resolveDecisionCacheMaxEntries();
+        this.decisionCache = new LinkedHashMap<>(decisionCacheMaxEntries + 1, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, CachedDecision> eldest) {
+                return size() > BotBrain.this.decisionCacheMaxEntries;
+            }
+        };
     }
 
     public Optional<BotDecision> tick(BotDecisionContext context) {
         Instant now = Instant.now();
+        if (lastDecisionAt != null
+            && lastDecisionObjective != null
+            && lastDecisionObjective.equals(context.objective())
+            && Duration.between(lastDecisionAt, now).compareTo(repeatCooldown) < 0) {
+            return Optional.empty();
+        }
         if (!allowDecision(now)) {
             rateLimitSkips++;
             return Optional.empty();
@@ -69,6 +89,14 @@ public final class BotBrain {
             && question.equals(lastQuestion)) {
             raw = lastResponse;
             cacheHits++;
+        } else {
+            CachedDecision cached = lookupCachedDecision(question, now).orElse(null);
+            if (cached != null) {
+                raw = cached.response();
+                lastQuestion = question;
+                lastResponse = raw;
+                lastResponseAt = cached.cachedAt();
+            }
         }
 
         if (raw == null) {
@@ -77,6 +105,7 @@ public final class BotBrain {
             lastQuestion = question;
             lastResponse = raw;
             lastResponseAt = now;
+            storeCachedDecision(question, raw, now);
         }
 
         BotAction action = parseAction(raw);
@@ -86,6 +115,7 @@ public final class BotBrain {
         registerDecision(now);
         lastDecisionAt = now;
         lastDecision = decision;
+        lastDecisionObjective = context.objective();
         return Optional.of(decision);
     }
 
@@ -152,6 +182,26 @@ public final class BotBrain {
     public record DecisionStats(int cacheHits, int rateLimitSkips, int totalDecisions) {
     }
 
+    private Optional<CachedDecision> lookupCachedDecision(String question, Instant now) {
+        if (decisionCache.isEmpty()) {
+            return Optional.empty();
+        }
+        CachedDecision cached = decisionCache.get(question);
+        if (cached == null) {
+            return Optional.empty();
+        }
+        if (Duration.between(cached.cachedAt(), now).compareTo(cacheTtl) >= 0) {
+            decisionCache.remove(question);
+            return Optional.empty();
+        }
+        cacheHits++;
+        return Optional.of(cached);
+    }
+
+    private void storeCachedDecision(String question, String response, Instant now) {
+        decisionCache.put(question, new CachedDecision(response, now));
+    }
+
     private Duration resolveCacheTtl() {
         String env = System.getenv("AIPLAYER_DECISION_CACHE_SECONDS");
         long seconds = 120;
@@ -168,6 +218,24 @@ public final class BotBrain {
             seconds = 600;
         }
         return Duration.ofSeconds(seconds);
+    }
+
+    private int resolveDecisionCacheMaxEntries() {
+        String env = System.getenv("AIPLAYER_DECISION_CACHE_MAX");
+        int max = 128;
+        if (env != null && !env.isBlank()) {
+            try {
+                max = Integer.parseInt(env.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (max < 10) {
+            max = 10;
+        }
+        if (max > 1000) {
+            max = 1000;
+        }
+        return max;
     }
 
     private Duration resolveDecisionWindow() {
@@ -206,13 +274,34 @@ public final class BotBrain {
         return max;
     }
 
+    private Duration resolveRepeatCooldown() {
+        String env = System.getenv("AIPLAYER_DECISION_REPEAT_SECONDS");
+        long seconds = 45;
+        if (env != null && !env.isBlank()) {
+            try {
+                seconds = Long.parseLong(env.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (seconds < 10) {
+            seconds = 10;
+        }
+        if (seconds > 300) {
+            seconds = 300;
+        }
+        return Duration.ofSeconds(seconds);
+    }
+
     public record BotDecision(BotAction action, BotState state, String rawResponse, Instant decidedAt) {
     }
 
+    private record CachedDecision(String response, Instant cachedAt) {
+    }
 
     public record BotDecisionContext(String phase, String objective) {
     }
 }
+
 
 
 
