@@ -4,10 +4,15 @@ Cette base est 100% dockerisee pour le serveur et le dev du mod.
 
 ## Services
 
-- `minecraft` : NeoForge `1.21.1 / 21.1.172` depuis `Ressource minecraft/neoforge-21.1.172` + mods du dossier `Ressource minecraft/mods`
+- `minecraft` : NeoForge `1.21.1 / 21.1.172` depuis `Ressource minecraft/neoforge-21.1.172` + mods dans `Ressource minecraft/mods.zip`
 - `ollama` : endpoint local LLM (port `11434`)
 - `ollama-pull` : job ponctuel de pull du modele (`qwen3:8b` par defaut)
 - `mod-dev` (profil `dev`) : shell Gradle/JDK21 pour developper le mod sans installer Java localement
+
+## Mods (Git LFS)
+
+- `Ressource minecraft/mods.zip` est versionne via Git LFS.
+- Apres clonage : `git lfs pull` pour recuperer les mods.
 
 ## Demarrage rapide
 
@@ -82,3 +87,4 @@ Le script affiche l'etat par rapport au budget (max 6c/24GB).
 ```bash
 docker compose down -v
 ```
+

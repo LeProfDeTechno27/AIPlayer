@@ -3,6 +3,7 @@ set -euo pipefail
 
 DATA_DIR="${DATA_DIR:-/data}"
 BOOTSTRAP_MODS_DIR="${BOOTSTRAP_MODS_DIR:-/bootstrap/mods}"
+BOOTSTRAP_MODS_ZIP="${BOOTSTRAP_MODS_ZIP:-/bootstrap/mods.zip}"
 BOOTSTRAP_NEOFORGE_DIR="${BOOTSTRAP_NEOFORGE_DIR:-/bootstrap/neoforge}"
 BOOTSTRAP_CONFIG_DIR="${BOOTSTRAP_CONFIG_DIR:-/bootstrap/server-config}"
 
@@ -48,16 +49,35 @@ install_neoforge() {
   java -jar "$installer" --installServer
 }
 
+extract_mods_zip() {
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+
+  unzip -o -q "$BOOTSTRAP_MODS_ZIP" -d "$temp_dir"
+
+  while IFS= read -r -d '' mod_file; do
+    cp -f "$mod_file" "$DATA_DIR/mods/"
+  done < <(find "$temp_dir" -type f -name '*.jar' -print0)
+
+  rm -rf "$temp_dir"
+}
+
 sync_mods() {
-  if [[ ! -d "$BOOTSTRAP_MODS_DIR" ]]; then
-    log "Dossier de mods absent: $BOOTSTRAP_MODS_DIR"
+  if [[ -d "$BOOTSTRAP_MODS_DIR" ]]; then
+    log "Synchronisation des mods depuis $BOOTSTRAP_MODS_DIR vers $DATA_DIR/mods"
+    while IFS= read -r -d '' mod_file; do
+      cp -f "$mod_file" "$DATA_DIR/mods/"
+    done < <(find "$BOOTSTRAP_MODS_DIR" -maxdepth 1 -type f -name '*.jar' -print0)
     return
   fi
 
-  log "Synchronisation des mods vers $DATA_DIR/mods"
-  while IFS= read -r -d '' mod_file; do
-    cp -f "$mod_file" "$DATA_DIR/mods/"
-  done < <(find "$BOOTSTRAP_MODS_DIR" -maxdepth 1 -type f -name '*.jar' -print0)
+  if [[ -f "$BOOTSTRAP_MODS_ZIP" ]]; then
+    log "Extraction des mods depuis $(basename "$BOOTSTRAP_MODS_ZIP") vers $DATA_DIR/mods"
+    extract_mods_zip
+    return
+  fi
+
+  log "Aucun mods trouve (dossier: $BOOTSTRAP_MODS_DIR, zip: $BOOTSTRAP_MODS_ZIP)"
 }
 
 copy_default_server_config() {
