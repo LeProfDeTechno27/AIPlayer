@@ -4,6 +4,8 @@ import com.aiplayer.mod.integrations.OllamaClient;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -35,6 +37,10 @@ public final class BotBrain {
     private final Duration repeatCooldown;
     private final int decisionCacheMaxEntries;
     private final Map<String, CachedDecision> decisionCache;
+    private final int decisionBatchSize;
+    private final Deque<String> pendingDecisions;
+    private String lastBatchQuestion;
+    private Instant lastBatchAt;
     private Instant lastDecisionAt;
     private BotDecision lastDecision;
     private String lastDecisionObjective;
@@ -56,6 +62,8 @@ public final class BotBrain {
         this.maxDecisionsPerWindow = resolveMaxDecisionsPerWindow();
         this.repeatCooldown = resolveRepeatCooldown();
         this.decisionCacheMaxEntries = resolveDecisionCacheMaxEntries();
+        this.decisionBatchSize = resolveDecisionBatchSize();
+        this.pendingDecisions = new ArrayDeque<>();
         this.decisionCache = new LinkedHashMap<>(decisionCacheMaxEntries + 1, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<String, CachedDecision> eldest) {
@@ -84,7 +92,18 @@ public final class BotBrain {
         String question = "Etat: phase=" + context.phase() + " objective=" + context.objective()
             + ". Prochaine action (move/mine/craft/build/interact/sleep) ?";
         String raw = null;
-        if (lastResponseAt != null
+        if (!pendingDecisions.isEmpty()) {
+            if (lastBatchQuestion != null
+                && lastBatchQuestion.equals(question)
+                && lastBatchAt != null
+                && Duration.between(lastBatchAt, now).compareTo(cacheTtl) < 0) {
+                raw = pendingDecisions.poll();
+                cacheHits++;
+            } else {
+                pendingDecisions.clear();
+            }
+        }
+        if (raw == null && lastResponseAt != null
             && Duration.between(lastResponseAt, now).compareTo(cacheTtl) < 0
             && question.equals(lastQuestion)) {
             raw = lastResponse;
@@ -100,8 +119,26 @@ public final class BotBrain {
         }
 
         if (raw == null) {
-            Optional<String> response = ollamaClient.ask(question, context.objective());
-            raw = response.orElse(lastResponse != null ? lastResponse : "idle");
+            String askQuestion = question;
+            if (decisionBatchSize > 1) {
+                askQuestion = question + " Donne " + decisionBatchSize + " actions separees par des virgules.";
+            }
+            Optional<String> response = ollamaClient.ask(askQuestion, context.objective());
+            String responseRaw = response.orElse(lastResponse != null ? lastResponse : "idle");
+            if (decisionBatchSize > 1) {
+                var parts = responseRaw.split("[\n,;]+");
+                for (String part : parts) {
+                    String trimmed = part.trim();
+                    if (!trimmed.isEmpty()) {
+                        pendingDecisions.add(trimmed);
+                    }
+                }
+                raw = pendingDecisions.isEmpty() ? responseRaw : pendingDecisions.poll();
+                lastBatchQuestion = question;
+                lastBatchAt = now;
+            } else {
+                raw = responseRaw;
+            }
             lastQuestion = question;
             lastResponse = raw;
             lastResponseAt = now;
@@ -218,6 +255,24 @@ public final class BotBrain {
             seconds = 600;
         }
         return Duration.ofSeconds(seconds);
+    }
+
+    private int resolveDecisionBatchSize() {
+        String env = System.getenv("AIPLAYER_DECISION_BATCH_SIZE");
+        int size = 3;
+        if (env != null && !env.isBlank()) {
+            try {
+                size = Integer.parseInt(env.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (size < 1) {
+            size = 1;
+        }
+        if (size > 5) {
+            size = 5;
+        }
+        return size;
     }
 
     private int resolveDecisionCacheMaxEntries() {

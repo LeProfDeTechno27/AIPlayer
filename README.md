@@ -24,7 +24,11 @@ Cette base est 100% dockerisee pour le serveur et le dev du mod.
 - `AIPLAYER_DECISION_MAX_PER_WINDOW` : max decisions LLM par fenetre
 - `AIPLAYER_DECISION_CACHE_SECONDS` : TTL cache des reponses LLM
 - `AIPLAYER_DECISION_CACHE_MAX` : taille max cache questions LLM
+- `AIPLAYER_DECISION_BATCH_SIZE` : nombre d'actions par requete LLM
 - `AIPLAYER_DECISION_DEGRADE_SECONDS` : intervalle degrade en surcharge
+- `AIPLAYER_MAX_MSPT` : coupe les decisions LLM si MSPT depasse le seuil
+- `AIPLAYER_PATH_CACHE_SECONDS` : TTL cache move/path pour limiter recalculs
+- `AIPLAYER_RECIPE_CACHE_SECONDS` : TTL cache demandes craft (AE2)
 - `AIPLAYER_ACTION_FLUSH_SECONDS` : flush batch SQLite (bot_actions)
 - `AIPLAYER_ACTION_BATCH_SIZE` : taille batch SQLite
 - `AIPLAYER_ACTION_BUFFER_WARN` : seuil buffer avant degradation
