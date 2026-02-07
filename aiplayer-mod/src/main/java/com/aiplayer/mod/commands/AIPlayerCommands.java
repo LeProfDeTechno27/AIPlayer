@@ -146,7 +146,7 @@ public final class AIPlayerCommands {
                             runtime,
                             StringArgumentType.getString(context, "status"),
                             IntegerArgumentType.getInteger(context, "limit")
-                        ))))
+                        )))))
             .then(Commands.literal("prune")
                 .executes(context -> botTasksPrune(context.getSource(), runtime, DEFAULT_BOT_TASK_PRUNE_LIMIT))
                 .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
