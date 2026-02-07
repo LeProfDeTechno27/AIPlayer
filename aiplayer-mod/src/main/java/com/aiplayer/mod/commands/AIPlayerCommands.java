@@ -160,7 +160,7 @@ public final class AIPlayerCommands {
                     context.getSource(),
                     runtime,
                     IntegerArgumentType.getInteger(context, "limit")
-                ));
+                )));
 
         var botCommand = Commands.literal("bot")
             .requires(source -> source.hasPermission(2))
