@@ -52,7 +52,6 @@ public class AIPlayerMod {
         LOGGER.info("{} bootstrap complete. phase={}, modules={}", ModMetadata.MOD_ID, this.runtime.getPhase(), this.moduleManager.size());
     }
 
-    @SubscribeEvent
     public void onEntityAttributes(EntityAttributeCreationEvent event) {
         event.put(AIBotEntities.AI_BOT.get(), AIBotEntity.createAttributes().build());
     }
@@ -97,3 +96,4 @@ public class AIPlayerMod {
         LOGGER.info("Enabled modules override applied: {}", this.moduleManager.getEnabledModuleNames());
     }
 }
+
