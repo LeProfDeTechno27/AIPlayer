@@ -62,7 +62,7 @@ public final class BotMemoryRepository {
     }
 
     public Optional<Integer> loadBotXp() {
-        String sql = "SELECT config_value FROM bot_config WHERE config_key = ''bot_xp''";
+        String sql = "SELECT config_value FROM bot_config WHERE config_key = 'bot_xp'";
 
         try (Connection connection = openConnection();
              PreparedStatement statement = connection.prepareStatement(sql);
