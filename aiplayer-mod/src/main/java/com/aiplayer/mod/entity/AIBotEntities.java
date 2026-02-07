@@ -1,4 +1,4 @@
-﻿package com.aiplayer.mod.entity;
+package com.aiplayer.mod.entity;
 
 import com.aiplayer.mod.ModMetadata;
 import net.minecraft.core.registries.Registries;

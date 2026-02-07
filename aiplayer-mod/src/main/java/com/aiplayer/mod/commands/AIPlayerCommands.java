@@ -61,488 +61,516 @@ public final class AIPlayerCommands {
     }
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher, AIPlayerRuntime runtime) {
-        dispatcher.register(
-            Commands.literal("bot")
-                .requires(source -> source.hasPermission(2))
-                .then(Commands.literal("spawn")
+        var botTaskCommand = Commands.literal("task")
+            .then(Commands.literal("done")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .executes(context -> botTaskDone(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "id")
+                    ))))
+            .then(Commands.literal("start")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .executes(context -> botTaskStart(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "id")
+                    ))))
+            .then(Commands.literal("cancel")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .executes(context -> botTaskCancel(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "id")
+                    ))))
+            .then(Commands.literal("reopen")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .executes(context -> botTaskReopen(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "id")
+                    ))))
+            .then(Commands.literal("info")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .executes(context -> botTaskInfo(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "id")
+                    ))))
+            .then(Commands.literal("update")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .then(Commands.argument("objective", StringArgumentType.greedyString())
+                        .executes(context -> botTaskUpdate(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "id"),
+                            StringArgumentType.getString(context, "objective")
+                        )))))
+            .then(Commands.literal("delete")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .executes(context -> botTaskDelete(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "id")
+                    ))))
+            .then(Commands.argument("objective", StringArgumentType.greedyString())
+                .executes(context -> botTask(
+                    context.getSource(),
+                    runtime,
+                    StringArgumentType.getString(context, "objective")
+                )));
+
+        var botTasksCommand = Commands.literal("tasks")
+            .executes(context -> botTasks(context.getSource(), runtime, DEFAULT_BOT_TASK_LIST_LIMIT))
+            .then(Commands.literal("all")
+                .executes(context -> botTasks(context.getSource(), runtime, DEFAULT_BOT_TASK_LIST_LIMIT, true))
+                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
+                    .executes(context -> botTasks(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "limit"),
+                        true
+                    ))))
+            .then(Commands.literal("status")
+                .then(Commands.argument("status", StringArgumentType.word())
+                    .suggests((context, builder) -> SharedSuggestionProvider.suggest(BOT_TASK_STATUS_SUGGESTIONS, builder))
+                    .executes(context -> botTasksByStatus(
+                        context.getSource(),
+                        runtime,
+                        StringArgumentType.getString(context, "status"),
+                        DEFAULT_BOT_TASK_LIST_LIMIT
+                    ))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
+                        .executes(context -> botTasksByStatus(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "status"),
+                            IntegerArgumentType.getInteger(context, "limit")
+                        ))))
+            .then(Commands.literal("prune")
+                .executes(context -> botTasksPrune(context.getSource(), runtime, DEFAULT_BOT_TASK_PRUNE_LIMIT))
+                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                    .executes(context -> botTasksPrune(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "limit")
+                    ))))
+            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
+                .executes(context -> botTasks(
+                    context.getSource(),
+                    runtime,
+                    IntegerArgumentType.getInteger(context, "limit")
+                )));
+
+        var botCommand = Commands.literal("bot")
+            .requires(source -> source.hasPermission(2))
+            .then(Commands.literal("spawn")
+                .then(Commands.argument("name", StringArgumentType.word())
+                    .executes(context -> spawnBotNamed(
+                        context.getSource(),
+                        runtime,
+                        StringArgumentType.getString(context, "name")
+                    )))
+                .executes(context -> spawnBotNamed(context.getSource(), runtime, "AIPlayer Bot")))
+            .then(Commands.literal("status")
+                .executes(context -> showStatus(context.getSource(), runtime)))
+            .then(Commands.literal("xp")
+                .executes(context -> botXpStatus(context.getSource(), runtime))
+                .then(Commands.literal("add")
+                    .then(Commands.argument("amount", IntegerArgumentType.integer(1, 10000))
+                        .executes(context -> botXpAdd(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "amount")
+                        ))))
+                .then(Commands.literal("set")
+                    .then(Commands.argument("amount", IntegerArgumentType.integer(0, 100000))
+                        .executes(context -> botXpSet(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "amount")
+                        )))))
+            .then(botTaskCommand)
+            .then(Commands.literal("build")
+                .then(Commands.argument("objective", StringArgumentType.greedyString())
+                    .executes(context -> botBuild(
+                        context.getSource(),
+                        runtime,
+                        StringArgumentType.getString(context, "objective")
+                    ))))
+            .then(botTasksCommand)
+            .then(Commands.literal("ask")
+                .then(Commands.argument("question", StringArgumentType.greedyString())
+                    .executes(context -> botAsk(
+                        context.getSource(),
+                        runtime,
+                        StringArgumentType.getString(context, "question")
+                    ))))
+            .then(Commands.literal("interactions")
+                .executes(context -> botInteractions(context.getSource(), runtime, DEFAULT_BOT_INTERACTION_LIST_LIMIT))
+                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
+                    .executes(context -> botInteractions(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "limit")
+                    ))));
+
+        dispatcher.register(botCommand);
+
+        var ae2QueueCommand = Commands.literal("queue")
+            .executes(context -> ae2Queue(context.getSource(), runtime, DEFAULT_AE2_QUEUE_LIMIT))
+            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 25))
+                .executes(context -> ae2Queue(
+                    context.getSource(),
+                    runtime,
+                    IntegerArgumentType.getInteger(context, "limit")
+                )))
+            .then(Commands.literal("pending")
+                .executes(context -> ae2Queue(context.getSource(), runtime, DEFAULT_AE2_QUEUE_LIMIT))
+                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 25))
+                    .executes(context -> ae2Queue(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "limit")
+                    ))))
+            .then(Commands.literal("clear")
+                .executes(context -> ae2QueueClear(context.getSource(), runtime, DEFAULT_AE2_CLEAR_LIMIT))
+                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 500))
+                    .executes(context -> ae2QueueClear(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "limit")
+                    ))))
+            .then(Commands.literal("retry")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .executes(context -> ae2QueueRetry(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "id")
+                    ))))
+            .then(Commands.literal("replay")
+                .then(Commands.literal("failed")
+                    .executes(context -> ae2QueueReplayFailed(
+                        context.getSource(),
+                        runtime,
+                        DEFAULT_AE2_REPLAY_LIMIT
+                    ))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                        .executes(context -> ae2QueueReplayFailed(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "limit")
+                        ))))
+                .then(Commands.literal("dispatched")
+                    .executes(context -> ae2QueueReplayDispatched(
+                        context.getSource(),
+                        runtime,
+                        DEFAULT_AE2_REPLAY_LIMIT
+                    ))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                        .executes(context -> ae2QueueReplayDispatched(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "limit")
+                        ))))
+                .then(Commands.literal("canceled")
+                    .executes(context -> ae2QueueReplayCanceled(
+                        context.getSource(),
+                        runtime,
+                        DEFAULT_AE2_REPLAY_LIMIT
+                    ))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                        .executes(context -> ae2QueueReplayCanceled(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "limit")
+                        ))))
+                .then(Commands.literal("done")
+                    .executes(context -> ae2QueueReplayDone(
+                        context.getSource(),
+                        runtime,
+                        DEFAULT_AE2_REPLAY_LIMIT
+                    ))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                        .executes(context -> ae2QueueReplayDone(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "limit")
+                        ))))
+                .then(Commands.literal("all")
+                    .executes(context -> ae2QueueReplayAll(
+                        context.getSource(),
+                        runtime,
+                        DEFAULT_AE2_REPLAY_LIMIT
+                    ))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                        .executes(context -> ae2QueueReplayAll(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "limit")
+                        ))))
+                .then(Commands.argument("status", StringArgumentType.word())
+                    .suggests((context, builder) -> SharedSuggestionProvider.suggest(AE2_REQUEST_STATUS_SUGGESTIONS, builder))
+                    .executes(context -> ae2QueueReplay(
+                        context.getSource(),
+                        runtime,
+                        StringArgumentType.getString(context, "status"),
+                        DEFAULT_AE2_REPLAY_LIMIT
+                    ))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                        .executes(context -> ae2QueueReplay(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "status"),
+                            IntegerArgumentType.getInteger(context, "limit")
+                        )))))
+            .then(Commands.literal("delete")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .executes(context -> ae2QueueDelete(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "id")
+                    ))))
+            .then(Commands.literal("done")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .executes(context -> ae2QueueDone(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "id"),
+                        "Completed manually"
+                    ))
+                    .then(Commands.argument("message", StringArgumentType.greedyString())
+                        .executes(context -> ae2QueueDone(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "id"),
+                            StringArgumentType.getString(context, "message")
+                        )))))
+            .then(Commands.literal("cancel")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .executes(context -> ae2QueueCancel(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "id"),
+                        "Canceled manually"
+                    ))
+                    .then(Commands.argument("reason", StringArgumentType.greedyString())
+                        .executes(context -> ae2QueueCancel(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "id"),
+                            StringArgumentType.getString(context, "reason")
+                        )))))
+            .then(Commands.literal("stats")
+                .executes(context -> ae2QueueStats(context.getSource(), runtime)))
+            .then(Commands.literal("purge")
+                .executes(context -> ae2QueuePurge(context.getSource(), runtime, 100))
+                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 1000))
+                    .executes(context -> ae2QueuePurge(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "limit")
+                    ))))
+            .then(Commands.literal("fail")
+                .then(Commands.argument("id", IntegerArgumentType.integer(1))
+                    .then(Commands.argument("reason", StringArgumentType.greedyString())
+                        .executes(context -> ae2QueueFail(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "id"),
+                            StringArgumentType.getString(context, "reason")
+                        )))))
+            .then(Commands.literal("history")
+                .executes(context -> ae2QueueHistory(context.getSource(), runtime, DEFAULT_AE2_HISTORY_LIMIT))
+                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                    .executes(context -> ae2QueueHistory(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "limit")
+                    )))
+                .then(Commands.argument("status", StringArgumentType.word())
+                    .suggests((context, builder) -> SharedSuggestionProvider.suggest(AE2_REQUEST_STATUS_SUGGESTIONS, builder))
+                    .executes(context -> ae2QueueHistoryByStatus(
+                        context.getSource(),
+                        runtime,
+                        StringArgumentType.getString(context, "status"),
+                        DEFAULT_AE2_HISTORY_LIMIT
+                    ))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
+                        .executes(context -> ae2QueueHistoryByStatus(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "status"),
+                            IntegerArgumentType.getInteger(context, "limit")
+                        )))))
+            .then(Commands.literal("export")
+                .executes(context -> ae2QueueExport(context.getSource(), runtime, DEFAULT_AE2_EXPORT_LIMIT))
+                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 100))
+                    .executes(context -> ae2QueueExport(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "limit")
+                    ))));
+
+        var ae2Command = Commands.literal("ae2")
+            .then(Commands.literal("status")
+                .executes(context -> ae2Status(context.getSource(), runtime, DEFAULT_AE2_RADIUS))
+                .then(Commands.argument("radius", IntegerArgumentType.integer(2, 32))
+                    .executes(context -> ae2Status(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "radius")
+                    ))))
+            .then(Commands.literal("suggest")
+                .executes(context -> ae2Suggest(context.getSource(), runtime, DEFAULT_AE2_RADIUS))
+                .then(Commands.argument("radius", IntegerArgumentType.integer(2, 32))
+                    .executes(context -> ae2Suggest(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "radius")
+                    ))))
+            .then(Commands.literal("api")
+                .executes(context -> ae2Api(context.getSource(), runtime)))
+            .then(Commands.literal("craft")
+                .then(Commands.argument("itemId", StringArgumentType.word())
+                    .executes(context -> ae2Craft(
+                        context.getSource(),
+                        runtime,
+                        StringArgumentType.getString(context, "itemId"),
+                        DEFAULT_AE2_CRAFT_QUANTITY
+                    ))
+                    .then(Commands.argument("quantity", IntegerArgumentType.integer(1, 4096))
+                        .executes(context -> ae2Craft(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "itemId"),
+                            IntegerArgumentType.getInteger(context, "quantity")
+                        )))))
+            .then(ae2QueueCommand)
+            .then(Commands.literal("dispatch")
+                .executes(context -> ae2Dispatch(context.getSource(), runtime, DEFAULT_AE2_DISPATCH_LIMIT))
+                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 25))
+                    .executes(context -> ae2Dispatch(
+                        context.getSource(),
+                        runtime,
+                        IntegerArgumentType.getInteger(context, "limit")
+                    ))));
+
+        var aiPlayerCommand = Commands.literal("aiplayer")
+            .requires(source -> source.hasPermission(2))
+            .then(Commands.literal("status")
+                .executes(context -> showStatus(context.getSource(), runtime)))
+            .then(Commands.literal("spawn")
+                .executes(context -> spawnMarker(context.getSource(), runtime)))
+            .then(Commands.literal("despawn")
+                .executes(context -> despawnMarker(context.getSource(), runtime)))
+            .then(Commands.literal("tick")
+                .executes(context -> tickOnce(context.getSource(), runtime)))
+            .then(Commands.literal("phase")
+                .then(Commands.argument("value", StringArgumentType.word())
+                    .executes(context -> setPhase(
+                        context.getSource(),
+                        runtime,
+                        StringArgumentType.getString(context, "value")
+                    ))))
+            .then(Commands.literal("module")
+                .then(Commands.literal("list")
+                    .executes(context -> listModules(context.getSource(), runtime)))
+                .then(Commands.literal("status")
                     .then(Commands.argument("name", StringArgumentType.word())
-                        .executes(context -> spawnBotNamed(
+                        .suggests((context, builder) -> SharedSuggestionProvider.suggest(runtime.getRegisteredModules(), builder))
+                        .executes(context -> moduleStatus(
                             context.getSource(),
                             runtime,
                             StringArgumentType.getString(context, "name")
-                        )))
-                    .executes(context -> spawnBotNamed(context.getSource(), runtime, "AIPlayer Bot")))
+                        ))))
+                .then(Commands.literal("source")
+                    .executes(context -> moduleSource(context.getSource(), runtime)))
+                .then(Commands.literal("audit")
+                    .executes(context -> moduleAudit(context.getSource(), runtime)))
+                .then(Commands.literal("drift")
+                    .executes(context -> moduleDrift(context.getSource(), runtime)))
+                .then(Commands.literal("reconcile")
+                    .executes(context -> moduleReconcile(context.getSource(), runtime)))
+                .then(Commands.literal("clear-storage")
+                    .executes(context -> clearModuleStorage(context.getSource(), runtime)))
+                .then(Commands.literal("save")
+                    .executes(context -> saveModules(context.getSource(), runtime)))
+                .then(Commands.literal("reload")
+                    .executes(context -> reloadModules(context.getSource(), runtime)))
+                .then(Commands.literal("reset")
+                    .executes(context -> resetModules(context.getSource(), runtime)))
+                .then(Commands.literal("disable-all")
+                    .executes(context -> disableAllModules(context.getSource(), runtime)))
+                .then(Commands.literal("enable")
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .suggests((context, builder) -> SharedSuggestionProvider.suggest(runtime.getRegisteredModules(), builder))
+                        .executes(context -> enableModule(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "name")
+                        ))))
+                .then(Commands.literal("disable")
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .suggests((context, builder) -> SharedSuggestionProvider.suggest(runtime.getRegisteredModules(), builder))
+                        .executes(context -> disableModule(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "name")
+                        )))))
+            .then(Commands.literal("colony")
                 .then(Commands.literal("status")
-                    .executes(context -> showStatus(context.getSource(), runtime)))
-                .then(Commands.literal("xp")
-                    .executes(context -> botXpStatus(context.getSource(), runtime))
-                    .then(Commands.literal("add")
-                        .then(Commands.argument("amount", IntegerArgumentType.integer(1, 10000))
-                            .executes(context -> botXpAdd(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "amount")
-                            ))))
-                    .then(Commands.literal("set")
-                        .then(Commands.argument("amount", IntegerArgumentType.integer(0, 100000))
-                            .executes(context -> botXpSet(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "amount")
-                            )))))
-                .then(Commands.literal("task")
-                    .then(Commands.literal("done")
-                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                            .executes(context -> botTaskDone(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "id")
-                            ))))
-                    .then(Commands.literal("start")
-                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                            .executes(context -> botTaskStart(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "id")
-                            ))))
-                    .then(Commands.literal("cancel")
-                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                            .executes(context -> botTaskCancel(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "id")
-                            ))))
-                    .then(Commands.literal("reopen")
-                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                            .executes(context -> botTaskReopen(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "id")
-                            ))))
-                    .then(Commands.literal("info")
-                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                            .executes(context -> botTaskInfo(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "id")
-                            ))))
-                    .then(Commands.literal("update")
-                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                            .then(Commands.argument("objective", StringArgumentType.greedyString())
-                                .executes(context -> botTaskUpdate(
-                                    context.getSource(),
-                                    runtime,
-                                    IntegerArgumentType.getInteger(context, "id"),
-                                    StringArgumentType.getString(context, "objective")
-                                )))))
-                        .then(Commands.literal("delete")
-                        .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                            .executes(context -> botTaskDelete(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "id")
-                            ))))
-                    .then(Commands.argument("objective", StringArgumentType.greedyString())
-                        .executes(context -> botTask(
+                    .executes(context -> colonyStatus(context.getSource(), runtime)))
+                .then(Commands.literal("townhall")
+                    .executes(context -> colonyTownHall(context.getSource(), runtime)))
+                .then(Commands.literal("ensure")
+                    .executes(context -> colonyEnsure(context.getSource(), runtime, DEFAULT_COLONY_ENSURE_COUNT))
+                    .then(Commands.argument("count", IntegerArgumentType.integer(1, 50))
+                        .executes(context -> colonyEnsure(
                             context.getSource(),
                             runtime,
-                            StringArgumentType.getString(context, "objective")
+                            IntegerArgumentType.getInteger(context, "count")
                         ))))
-                .then(Commands.literal("build")
-                    .then(Commands.argument("objective", StringArgumentType.greedyString())
-                        .executes(context -> botBuild(
+                .then(Commands.literal("request")
+                    .then(Commands.argument("itemId", StringArgumentType.word())
+                        .executes(context -> colonyRequest(
                             context.getSource(),
                             runtime,
-                            StringArgumentType.getString(context, "objective")
-                        ))))
-                .then(Commands.literal("tasks")
-                    .executes(context -> botTasks(context.getSource(), runtime, DEFAULT_BOT_TASK_LIST_LIMIT))
-                    .then(Commands.literal("all")
-                        .executes(context -> botTasks(context.getSource(), runtime, DEFAULT_BOT_TASK_LIST_LIMIT, true))
-                        .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
-                            .executes(context -> botTasks(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "limit"),
-                                true
-                            ))))
-                    .then(Commands.literal("status")
-                        .then(Commands.argument("status", StringArgumentType.word())
-                            .suggests((context, builder) -> SharedSuggestionProvider.suggest(BOT_TASK_STATUS_SUGGESTIONS, builder))
-                            .executes(context -> botTasksByStatus(
-                                context.getSource(),
-                                runtime,
-                                StringArgumentType.getString(context, "status"),
-                                DEFAULT_BOT_TASK_LIST_LIMIT
-                            ))
-                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
-                                .executes(context -> botTasksByStatus(
-                                    context.getSource(),
-                                    runtime,
-                                    StringArgumentType.getString(context, "status"),
-                                    IntegerArgumentType.getInteger(context, "limit")
-                                )))))
-                    .then(Commands.literal("prune")
-                        .executes(context -> botTasksPrune(context.getSource(), runtime, DEFAULT_BOT_TASK_PRUNE_LIMIT))
-                        .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
-                            .executes(context -> botTasksPrune(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "limit")
-                            ))))
-                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
-                        .executes(context -> botTasks(
-                            context.getSource(),
-                            runtime,
-                            IntegerArgumentType.getInteger(context, "limit")
-                        ))))
-                .then(Commands.literal("ask")
-                    .then(Commands.argument("question", StringArgumentType.greedyString())
-                        .executes(context -> botAsk(
-                            context.getSource(),
-                            runtime,
-                            StringArgumentType.getString(context, "question")
-                        ))))
-                .then(Commands.literal("interactions")
-                    .executes(context -> botInteractions(context.getSource(), runtime, DEFAULT_BOT_INTERACTION_LIST_LIMIT))
-                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
-                        .executes(context -> botInteractions(
-                            context.getSource(),
-                            runtime,
-                            IntegerArgumentType.getInteger(context, "limit")
-                        ))))
-        );
-
-        dispatcher.register(
-            Commands.literal("aiplayer")
-                .requires(source -> source.hasPermission(2))
-                .then(Commands.literal("status")
-                    .executes(context -> showStatus(context.getSource(), runtime)))
-                .then(Commands.literal("spawn")
-                    .executes(context -> spawnMarker(context.getSource(), runtime)))
-                .then(Commands.literal("despawn")
-                    .executes(context -> despawnMarker(context.getSource(), runtime)))
-                .then(Commands.literal("tick")
-                    .executes(context -> tickOnce(context.getSource(), runtime)))
-                .then(Commands.literal("phase")
-                    .then(Commands.argument("value", StringArgumentType.word())
-                        .executes(context -> setPhase(context.getSource(), runtime, StringArgumentType.getString(context, "value")))))
-                .then(Commands.literal("module")
-                    .then(Commands.literal("list")
-                        .executes(context -> listModules(context.getSource(), runtime)))
-                    .then(Commands.literal("status")
-                        .then(Commands.argument("name", StringArgumentType.word())
-                            .suggests((context, builder) -> SharedSuggestionProvider.suggest(runtime.getRegisteredModules(), builder))
-                            .executes(context -> moduleStatus(context.getSource(), runtime, StringArgumentType.getString(context, "name")))))
-                    .then(Commands.literal("source")
-                        .executes(context -> moduleSource(context.getSource(), runtime)))
-                    .then(Commands.literal("audit")
-                        .executes(context -> moduleAudit(context.getSource(), runtime)))
-                    .then(Commands.literal("drift")
-                        .executes(context -> moduleDrift(context.getSource(), runtime)))
-                    .then(Commands.literal("reconcile")
-                        .executes(context -> moduleReconcile(context.getSource(), runtime)))
-                    .then(Commands.literal("clear-storage")
-                        .executes(context -> clearModuleStorage(context.getSource(), runtime)))
-                    .then(Commands.literal("save")
-                        .executes(context -> saveModules(context.getSource(), runtime)))
-                    .then(Commands.literal("reload")
-                        .executes(context -> reloadModules(context.getSource(), runtime)))
-                    .then(Commands.literal("reset")
-                        .executes(context -> resetModules(context.getSource(), runtime)))
-                    .then(Commands.literal("disable-all")
-                        .executes(context -> disableAllModules(context.getSource(), runtime)))
-                    .then(Commands.literal("enable")
-                        .then(Commands.argument("name", StringArgumentType.word())
-                            .suggests((context, builder) -> SharedSuggestionProvider.suggest(runtime.getRegisteredModules(), builder))
-                            .executes(context -> enableModule(context.getSource(), runtime, StringArgumentType.getString(context, "name")))))
-                    .then(Commands.literal("disable")
-                        .then(Commands.argument("name", StringArgumentType.word())
-                            .suggests((context, builder) -> SharedSuggestionProvider.suggest(runtime.getRegisteredModules(), builder))
-                            .executes(context -> disableModule(context.getSource(), runtime, StringArgumentType.getString(context, "name"))))))
-                .then(Commands.literal("colony")
-                    .then(Commands.literal("status")
-                        .executes(context -> colonyStatus(context.getSource(), runtime)))
-                    .then(Commands.literal("townhall")
-                        .executes(context -> colonyTownHall(context.getSource(), runtime)))
-                    .then(Commands.literal("ensure")
-                        .executes(context -> colonyEnsure(context.getSource(), runtime, DEFAULT_COLONY_ENSURE_COUNT))
-                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 50))
-                            .executes(context -> colonyEnsure(context.getSource(), runtime, IntegerArgumentType.getInteger(context, "count"))))))
-                    .then(Commands.literal("request")
-                        .then(Commands.argument("itemId", StringArgumentType.word())
+                            StringArgumentType.getString(context, "itemId"),
+                            DEFAULT_COLONY_REQUEST_COUNT
+                        ))
+                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 512))
                             .executes(context -> colonyRequest(
                                 context.getSource(),
                                 runtime,
                                 StringArgumentType.getString(context, "itemId"),
-                                DEFAULT_COLONY_REQUEST_COUNT
-                            ))
-                            .then(Commands.argument("count", IntegerArgumentType.integer(1, 512))
-                                .executes(context -> colonyRequest(
-                                    context.getSource(),
-                                    runtime,
-                                    StringArgumentType.getString(context, "itemId"),
-                                    IntegerArgumentType.getInteger(context, "count")
-                                )))))
-                    .then(Commands.literal("mayor")
-                        .executes(context -> colonyMayor(context.getSource(), runtime)))
-                    .then(Commands.literal("create")
-                        .executes(context -> colonyCreateDefault(context.getSource(), runtime))
-                        .then(Commands.argument("name", StringArgumentType.word())
-                            .then(Commands.argument("style", StringArgumentType.word())
-                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(COLONY_STYLE_SUGGESTIONS, builder))
-                                .executes(context -> colonyCreateCustom(
-                                    context.getSource(),
-                                    runtime,
-                                    StringArgumentType.getString(context, "name"),
-                                    StringArgumentType.getString(context, "style")
-                                )))))
-                    .then(Commands.literal("claim")
-                        .executes(context -> colonyClaim(context.getSource(), runtime)))
-                    .then(Commands.literal("recruit")
-                        .then(Commands.argument("count", IntegerArgumentType.integer(1, 20))
-                            .executes(context -> colonyRecruit(
-                                context.getSource(),
-                                runtime,
                                 IntegerArgumentType.getInteger(context, "count")
                             )))))
-                .then(Commands.literal("ae2")
-                    .then(Commands.literal("status")
-                        .executes(context -> ae2Status(context.getSource(), runtime, DEFAULT_AE2_RADIUS))
-                        .then(Commands.argument("radius", IntegerArgumentType.integer(2, 32))
-                            .executes(context -> ae2Status(
+                .then(Commands.literal("mayor")
+                    .executes(context -> colonyMayor(context.getSource(), runtime)))
+                .then(Commands.literal("create")
+                    .executes(context -> colonyCreateDefault(context.getSource(), runtime))
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .then(Commands.argument("style", StringArgumentType.word())
+                            .suggests((context, builder) -> SharedSuggestionProvider.suggest(COLONY_STYLE_SUGGESTIONS, builder))
+                            .executes(context -> colonyCreateCustom(
                                 context.getSource(),
                                 runtime,
-                                IntegerArgumentType.getInteger(context, "radius")
-                            ))))
-                    .then(Commands.literal("suggest")
-                        .executes(context -> ae2Suggest(context.getSource(), runtime, DEFAULT_AE2_RADIUS))
-                        .then(Commands.argument("radius", IntegerArgumentType.integer(2, 32))
-                            .executes(context -> ae2Suggest(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "radius")
-                            ))))
-                    .then(Commands.literal("api")
-                        .executes(context -> ae2Api(context.getSource(), runtime)))
-                    .then(Commands.literal("craft")
-                        .then(Commands.argument("itemId", StringArgumentType.word())
-                            .executes(context -> ae2Craft(
-                                context.getSource(),
-                                runtime,
-                                StringArgumentType.getString(context, "itemId"),
-                                DEFAULT_AE2_CRAFT_QUANTITY
-                            ))
-                            .then(Commands.argument("quantity", IntegerArgumentType.integer(1, 4096))
-                                .executes(context -> ae2Craft(
-                                    context.getSource(),
-                                    runtime,
-                                    StringArgumentType.getString(context, "itemId"),
-                                    IntegerArgumentType.getInteger(context, "quantity")
-                                )))))
-                    .then(Commands.literal("queue")
-                        .executes(context -> ae2Queue(context.getSource(), runtime, DEFAULT_AE2_QUEUE_LIMIT))
-                        .then(Commands.argument("limit", IntegerArgumentType.integer(1, 25))
-                            .executes(context -> ae2Queue(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "limit")
-                            )))
-                        .then(Commands.literal("pending")
-                            .executes(context -> ae2Queue(context.getSource(), runtime, DEFAULT_AE2_QUEUE_LIMIT))
-                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 25))
-                                .executes(context -> ae2Queue(
-                                    context.getSource(),
-                                    runtime,
-                                    IntegerArgumentType.getInteger(context, "limit")
-                                ))))
-                        .then(Commands.literal("clear")
-                            .executes(context -> ae2QueueClear(context.getSource(), runtime, DEFAULT_AE2_CLEAR_LIMIT))
-                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 500))
-                                .executes(context -> ae2QueueClear(
-                                    context.getSource(),
-                                    runtime,
-                                    IntegerArgumentType.getInteger(context, "limit")
-                                )))))
-                        .then(Commands.literal("retry")
-                            .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                                .executes(context -> ae2QueueRetry(
-                                    context.getSource(),
-                                    runtime,
-                                    IntegerArgumentType.getInteger(context, "id")
-                                ))))
-                        .then(Commands.literal("replay")
-                            .then(Commands.literal("failed")
-                                .executes(context -> ae2QueueReplayFailed(
-                                    context.getSource(),
-                                    runtime,
-                                    DEFAULT_AE2_REPLAY_LIMIT
-                                ))
-                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(context -> ae2QueueReplayFailed(
-                                        context.getSource(),
-                                        runtime,
-                                        IntegerArgumentType.getInteger(context, "limit")
-                                    ))))
-                            .then(Commands.literal("dispatched")
-                                .executes(context -> ae2QueueReplayDispatched(
-                                    context.getSource(),
-                                    runtime,
-                                    DEFAULT_AE2_REPLAY_LIMIT
-                                ))
-                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(context -> ae2QueueReplayDispatched(
-                                        context.getSource(),
-                                        runtime,
-                                        IntegerArgumentType.getInteger(context, "limit")
-                                    ))))
-                            .then(Commands.literal("canceled")
-                                .executes(context -> ae2QueueReplayCanceled(
-                                    context.getSource(),
-                                    runtime,
-                                    DEFAULT_AE2_REPLAY_LIMIT
-                                ))
-                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(context -> ae2QueueReplayCanceled(
-                                        context.getSource(),
-                                        runtime,
-                                        IntegerArgumentType.getInteger(context, "limit")
-                                    ))))
-                            .then(Commands.literal("done")
-                                .executes(context -> ae2QueueReplayDone(
-                                    context.getSource(),
-                                    runtime,
-                                    DEFAULT_AE2_REPLAY_LIMIT
-                                ))
-                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(context -> ae2QueueReplayDone(
-                                        context.getSource(),
-                                        runtime,
-                                        IntegerArgumentType.getInteger(context, "limit")
-                                    ))))
-                            .then(Commands.literal("all")
-                                .executes(context -> ae2QueueReplayAll(
-                                    context.getSource(),
-                                    runtime,
-                                    DEFAULT_AE2_REPLAY_LIMIT
-                                ))
-                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(context -> ae2QueueReplayAll(
-                                        context.getSource(),
-                                        runtime,
-                                        IntegerArgumentType.getInteger(context, "limit")
-                                    ))))
-                            .then(Commands.argument("status", StringArgumentType.word())
-                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(AE2_REQUEST_STATUS_SUGGESTIONS, builder))
-                                .executes(context -> ae2QueueReplay(
-                                    context.getSource(),
-                                    runtime,
-                                    StringArgumentType.getString(context, "status"),
-                                    DEFAULT_AE2_REPLAY_LIMIT
-                                ))
-                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(context -> ae2QueueReplay(
-                                        context.getSource(),
-                                        runtime,
-                                        StringArgumentType.getString(context, "status"),
-                                        IntegerArgumentType.getInteger(context, "limit")
-                                    )))))
-                        .then(Commands.literal("delete")
-                            .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                                .executes(context -> ae2QueueDelete(
-                                    context.getSource(),
-                                    runtime,
-                                    IntegerArgumentType.getInteger(context, "id")
-                                ))))
-                        .then(Commands.literal("done")
-                            .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                                .executes(context -> ae2QueueDone(
-                                    context.getSource(),
-                                    runtime,
-                                    IntegerArgumentType.getInteger(context, "id"),
-                                    "Completed manually"
-                                ))
-                                .then(Commands.argument("message", StringArgumentType.greedyString())
-                                    .executes(context -> ae2QueueDone(
-                                        context.getSource(),
-                                        runtime,
-                                        IntegerArgumentType.getInteger(context, "id"),
-                                        StringArgumentType.getString(context, "message")
-                                    )))))
-                        .then(Commands.literal("cancel")
-                            .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                                .executes(context -> ae2QueueCancel(
-                                    context.getSource(),
-                                    runtime,
-                                    IntegerArgumentType.getInteger(context, "id"),
-                                    "Canceled manually"
-                                ))
-                                .then(Commands.argument("reason", StringArgumentType.greedyString())
-                                    .executes(context -> ae2QueueCancel(
-                                        context.getSource(),
-                                        runtime,
-                                        IntegerArgumentType.getInteger(context, "id"),
-                                        StringArgumentType.getString(context, "reason")
-                                    )))))
-                        .then(Commands.literal("stats")
-                            .executes(context -> ae2QueueStats(context.getSource(), runtime)))
-                        .then(Commands.literal("purge")
-                            .executes(context -> ae2QueuePurge(context.getSource(), runtime, 100))
-                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 1000))
-                                .executes(context -> ae2QueuePurge(
-                                    context.getSource(),
-                                    runtime,
-                                    IntegerArgumentType.getInteger(context, "limit")
-                                ))))
-                        .then(Commands.literal("fail")
-                            .then(Commands.argument("id", IntegerArgumentType.integer(1))
-                                .then(Commands.argument("reason", StringArgumentType.greedyString())
-                                    .executes(context -> ae2QueueFail(
-                                        context.getSource(),
-                                        runtime,
-                                        IntegerArgumentType.getInteger(context, "id"),
-                                        StringArgumentType.getString(context, "reason")
-                                    )))))
-                        .then(Commands.literal("history")
-                            .executes(context -> ae2QueueHistory(context.getSource(), runtime, DEFAULT_AE2_HISTORY_LIMIT))
-                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
-                                .executes(context -> ae2QueueHistory(
-                                    context.getSource(),
-                                    runtime,
-                                    IntegerArgumentType.getInteger(context, "limit")
-                                )))
-                            .then(Commands.argument("status", StringArgumentType.word())
-                                .suggests((context, builder) -> SharedSuggestionProvider.suggest(AE2_REQUEST_STATUS_SUGGESTIONS, builder))
-                                .executes(context -> ae2QueueHistoryByStatus(
-                                    context.getSource(),
-                                    runtime,
-                                    StringArgumentType.getString(context, "status"),
-                                    DEFAULT_AE2_HISTORY_LIMIT
-                                ))
-                                .then(Commands.argument("limit", IntegerArgumentType.integer(1, 200))
-                                    .executes(context -> ae2QueueHistoryByStatus(
-                                        context.getSource(),
-                                        runtime,
-                                        StringArgumentType.getString(context, "status"),
-                                        IntegerArgumentType.getInteger(context, "limit")
-                                    )))))
-                        .then(Commands.literal("export")
-                            .executes(context -> ae2QueueExport(context.getSource(), runtime, DEFAULT_AE2_EXPORT_LIMIT))
-                            .then(Commands.argument("limit", IntegerArgumentType.integer(1, 100))
-                                .executes(context -> ae2QueueExport(
-                                    context.getSource(),
-                                    runtime,
-                                    IntegerArgumentType.getInteger(context, "limit")
-                                ))))
-                    .then(Commands.literal("dispatch")
-                        .executes(context -> ae2Dispatch(context.getSource(), runtime, DEFAULT_AE2_DISPATCH_LIMIT))
-                        .then(Commands.argument("limit", IntegerArgumentType.integer(1, 25))
-                            .executes(context -> ae2Dispatch(
-                                context.getSource(),
-                                runtime,
-                                IntegerArgumentType.getInteger(context, "limit")
+                                StringArgumentType.getString(context, "name"),
+                                StringArgumentType.getString(context, "style")
                             )))))
-        );
+                .then(Commands.literal("claim")
+                    .executes(context -> colonyClaim(context.getSource(), runtime)))
+                .then(Commands.literal("recruit")
+                    .then(Commands.argument("count", IntegerArgumentType.integer(1, 20))
+                        .executes(context -> colonyRecruit(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "count")
+                        )))))
+            .then(ae2Command);
+
+        dispatcher.register(aiPlayerCommand);
     }
 
     private static int showStatus(CommandSourceStack source, AIPlayerRuntime runtime) {
@@ -1479,6 +1507,7 @@ public final class AIPlayerCommands {
         return 1;
     }
 }
+
 
 
 
