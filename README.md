@@ -12,7 +12,7 @@ Cette base est 100% dockerisee pour le serveur et le dev du mod.
 ## Mods (Git LFS)
 
 - `Ressource minecraft/mods.zip` est versionne via Git LFS.
-- Apres clonage : `git lfs pull` pour recuperer les mods.
+- Apres clonage : `git lfs pull` pour recuperer les mods.`r`n- `Ressource minecraft/mods-client` : mods client-only (non charges par le serveur).
 
 ## Demarrage rapide
 
@@ -87,4 +87,5 @@ Le script affiche l'etat par rapport au budget (max 6c/24GB).
 ```bash
 docker compose down -v
 ```
+
 
