@@ -49,10 +49,33 @@ install_neoforge() {
   java -jar "$installer" --installServer
 }
 
+is_lfs_pointer() {
+  local file="$1"
+  local first_line
+  first_line="$(head -n 1 "$file" 2>/dev/null || true)"
+  [[ "$first_line" == "version https://git-lfs.github.com/spec/v1" ]]
+}
+
+ensure_valid_mods_zip() {
+  local file="$1"
+
+  if is_lfs_pointer "$file"; then
+    log "mods.zip est un pointeur Git LFS. Sur l'hote : git lfs install && git lfs pull"
+    exit 1
+  fi
+
+  if ! unzip -tq "$file" >/dev/null 2>&1; then
+    log "mods.zip invalide ou corrompu: $file"
+    exit 1
+  fi
+}
+
 extract_mods_zip() {
   local temp_dir
-  temp_dir="$(mktemp -d)"
 
+  ensure_valid_mods_zip "$BOOTSTRAP_MODS_ZIP"
+
+  temp_dir="$(mktemp -d)"
   unzip -o -q "$BOOTSTRAP_MODS_ZIP" -d "$temp_dir"
 
   while IFS= read -r -d '' mod_file; do
