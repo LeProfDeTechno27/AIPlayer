@@ -167,6 +167,23 @@ public final class AIPlayerRuntime {
         recordTickLog(now);
     }
 
+
+    private void processBotBrainDecision(ServerLevel level) {
+        if (getTrackedBot(level) == null) {
+            return;
+        }
+        BotBrain.BotDecisionContext context = new BotBrain.BotDecisionContext(this.phase, this.currentObjective);
+        this.botBrain.tick(context).ifPresent(decision -> {
+            this.memoryRepository.recordAction(
+                "bot-brain-decision",
+                "action=" + decision.action()
+                    + " state=" + decision.state()
+                    + " raw=" + decision.rawResponse()
+            );
+            executeDecision(level, decision);
+        });
+    }
+
     private boolean shouldThrottleForMspt(ServerLevel level, Instant now) {
         if (maxMspt <= 0.0d) {
             return false;
@@ -181,6 +198,31 @@ public final class AIPlayerRuntime {
             lastMsptLogAt = now;
         }
         return true;
+    }
+
+
+    private double resolveAverageTickTimeMs(ServerLevel level) {
+        if (level == null || level.getServer() == null) {
+            return 0.0d;
+        }
+        Object server = level.getServer();
+        try {
+            var method = server.getClass().getMethod("getAverageTickTime");
+            Object value = method.invoke(server);
+            if (value instanceof Number number) {
+                return number.doubleValue();
+            }
+        } catch (ReflectiveOperationException ignored) {
+        }
+        try {
+            var method = server.getClass().getMethod("getAverageTickTimeNanos");
+            Object value = method.invoke(server);
+            if (value instanceof Number number) {
+                return number.doubleValue() / 1_000_000.0d;
+            }
+        } catch (ReflectiveOperationException ignored) {
+        }
+        return 0.0d;
     }
 
     private void recordDecisionStats(Instant now) {
@@ -1049,6 +1091,20 @@ public final class AIPlayerRuntime {
     private String resolveOllamaModel() {
         String env = System.getenv("AIPLAYER_OLLAMA_MODEL");
         return (env == null || env.isBlank()) ? "qwen3:8b" : env.trim();
+    }
+
+
+    private AIBotEntity getTrackedBot(ServerLevel level) {
+        if (this.botEntityId == null) {
+            return null;
+        }
+
+        Entity entity = level.getEntity(this.botEntityId);
+        if (entity instanceof AIBotEntity bot) {
+            return bot;
+        }
+
+        return null;
     }
 
     private Entity getTrackedMarker(ServerLevel level) {
