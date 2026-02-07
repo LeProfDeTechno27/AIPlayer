@@ -171,7 +171,7 @@ public final class AIPlayerRuntime {
         if (maxMspt <= 0.0d) {
             return false;
         }
-        double mspt = level.getServer().getAverageTickTime();
+        double mspt = resolveAverageTickTimeMs(level);
         if (mspt <= maxMspt) {
             return false;
         }

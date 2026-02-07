@@ -12,7 +12,6 @@ import com.aiplayer.mod.modules.MineColoniesModule;
 import com.aiplayer.mod.persistence.BotMemoryRepository;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.NeoForge;
@@ -34,7 +33,7 @@ public class AIPlayerMod {
     private final BotMemoryRepository memoryRepository;
     private final AIPlayerRuntime runtime;
 
-    public AIPlayerMod() {
+    public AIPlayerMod(IEventBus modBus) {
         this.moduleManager = new ModuleManager();
         registerDefaultModules();
         applyEnabledModulesOverride();
@@ -45,7 +44,6 @@ public class AIPlayerMod {
         this.runtime = new AIPlayerRuntime(this.moduleManager, this.memoryRepository);
         this.runtime.initialize();
 
-        IEventBus modBus = FMLJavaModLoadingContext.get().getModEventBus();
         AIBotEntities.ENTITIES.register(modBus);
         modBus.addListener(this::onEntityAttributes);
 
