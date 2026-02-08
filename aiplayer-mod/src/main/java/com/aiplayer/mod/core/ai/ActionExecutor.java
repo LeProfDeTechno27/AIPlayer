@@ -29,6 +29,8 @@ public final class ActionExecutor {
     private int stepIndex;
     private int ticksOnStep;
     private ActionResult lastResult;
+    private double lastDistanceSqr = Double.NaN;
+    private int stagnantTicks;
 
     public ActionExecutor(FakePlayerController fakePlayerController, BotMemoryService memoryService) {
         this.fakePlayerController = fakePlayerController;
@@ -44,6 +46,8 @@ public final class ActionExecutor {
         this.stepIndex = 0;
         this.ticksOnStep = 0;
         this.lastResult = null;
+        this.lastDistanceSqr = Double.NaN;
+        this.stagnantTicks = 0;
     }
 
     public void clearPlan() {
@@ -51,6 +55,8 @@ public final class ActionExecutor {
         this.stepIndex = 0;
         this.ticksOnStep = 0;
         this.lastResult = null;
+        this.lastDistanceSqr = Double.NaN;
+        this.stagnantTicks = 0;
     }
 
     public BotActionPlan getCurrentPlan() {
@@ -107,6 +113,8 @@ public final class ActionExecutor {
         memoryService.recordActionHistory(currentPlan, step, result, stepIndex);
         stepIndex++;
         ticksOnStep = 0;
+        lastDistanceSqr = Double.NaN;
+        stagnantTicks = 0;
     }
 
     private ActionResult executeStep(ServerLevel level, AIBotEntity bot, String botName, BotActionStep step) {
@@ -128,9 +136,17 @@ public final class ActionExecutor {
         }
         Vec3 target = resolveApproachTarget(level, step.target());
         double distance = bot.position().distanceToSqr(target);
+        trackMovementProgress(distance);
         if (distance <= 2.25) {
             return ActionResult.success("arrived");
         }
+
+        // If the bot is stuck too long, force a small teleport-to-target fallback.
+        if (stagnantTicks >= 25) {
+            bot.setPos(target.x, target.y, target.z);
+            return ActionResult.success("unstuck-teleport");
+        }
+
         moveBotToward(level, bot, target, 1.1);
         return ActionResult.running("moving");
     }
@@ -311,6 +327,20 @@ public final class ActionExecutor {
         BlockState head = level.getBlockState(pos.above());
         BlockState below = level.getBlockState(pos.below());
         return !feet.blocksMotion() && !head.blocksMotion() && below.blocksMotion();
+    }
+
+    private void trackMovementProgress(double distanceSqr) {
+        if (Double.isNaN(lastDistanceSqr)) {
+            lastDistanceSqr = distanceSqr;
+            stagnantTicks = 0;
+            return;
+        }
+        if (distanceSqr + 0.04 < lastDistanceSqr) {
+            stagnantTicks = 0;
+        } else {
+            stagnantTicks++;
+        }
+        lastDistanceSqr = distanceSqr;
     }
 
     private Block resolveBlock(String itemId) {

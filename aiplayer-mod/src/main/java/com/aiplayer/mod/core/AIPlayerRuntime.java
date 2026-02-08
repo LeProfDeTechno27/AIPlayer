@@ -1841,18 +1841,18 @@ public final class AIPlayerRuntime {
 
     private Duration resolveDecisionInterval() {
         String env = System.getenv("AIPLAYER_DECISION_INTERVAL_SECONDS");
-        long seconds = 60;
+        long seconds = 8;
         if (env != null && !env.isBlank()) {
             try {
                 seconds = Long.parseLong(env.trim());
             } catch (NumberFormatException ignored) {
             }
         }
-        if (seconds < 10) {
-            seconds = 10;
+        if (seconds < 3) {
+            seconds = 3;
         }
-        if (seconds > 300) {
-            seconds = 300;
+        if (seconds > 120) {
+            seconds = 120;
         }
         return Duration.ofSeconds(seconds);
     }
@@ -1904,6 +1904,7 @@ public final class AIPlayerRuntime {
             } catch (NumberFormatException ignored) {
             }
         } else {
+            // Default to a short cadence so autonomy is visible without extra config.
             ticks = (int) Math.max(20, resolveDecisionInterval().getSeconds() * 20);
         }
         if (ticks < 20) {
