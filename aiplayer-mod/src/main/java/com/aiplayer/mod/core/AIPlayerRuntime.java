@@ -615,24 +615,34 @@ public final class AIPlayerRuntime {
                 }
             }
             case "find_food" -> addCraftIfMissing(steps, inventory, "minecraft:bread");
-            case "mine_diamond" -> addMoveMineStep(steps, perception, List.of("minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"));
-            default -> addMoveMineStep(
-                steps,
-                perception,
-                List.of(
-                    "minecraft:iron_ore",
-                    "minecraft:deepslate_iron_ore",
-                    "minecraft:coal_ore",
-                    "minecraft:deepslate_coal_ore",
-                    "minecraft:oak_log",
-                    "minecraft:spruce_log",
-                    "minecraft:birch_log",
-                    "minecraft:jungle_log",
-                    "minecraft:acacia_log",
-                    "minecraft:dark_oak_log",
-                    "minecraft:mangrove_log"
-                )
-            );
+            case "mine_diamond" -> {
+                boolean added = addMoveMineStep(steps, perception, List.of("minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"));
+                if (!added) {
+                    addExplorationStep(steps, perception);
+                }
+            }
+            default -> {
+                boolean added = addMoveMineStep(
+                    steps,
+                    perception,
+                    List.of(
+                        "minecraft:iron_ore",
+                        "minecraft:deepslate_iron_ore",
+                        "minecraft:coal_ore",
+                        "minecraft:deepslate_coal_ore",
+                        "minecraft:oak_log",
+                        "minecraft:spruce_log",
+                        "minecraft:birch_log",
+                        "minecraft:jungle_log",
+                        "minecraft:acacia_log",
+                        "minecraft:dark_oak_log",
+                        "minecraft:mangrove_log"
+                    )
+                );
+                if (!added) {
+                    addExplorationStep(steps, perception);
+                }
+            }
         }
 
         if (steps.isEmpty()) {
@@ -648,13 +658,29 @@ public final class AIPlayerRuntime {
         steps.add(new BotActionStep(BotActionType.CRAFT, null, itemId, 1, actionTimeoutTicks));
     }
 
-    private void addMoveMineStep(List<BotActionStep> steps, BotPerception perception, List<String> preferredIds) {
+    private boolean addMoveMineStep(List<BotActionStep> steps, BotPerception perception, List<String> preferredIds) {
         BlockPos target = findTargetBlock(perception, preferredIds);
         if (target == null) {
-            return;
+            return false;
         }
         steps.add(new BotActionStep(BotActionType.MOVE, target, "", 1, actionTimeoutTicks));
         steps.add(new BotActionStep(BotActionType.MINE, target, "", 1, actionTimeoutTicks));
+        return true;
+    }
+
+    private void addExplorationStep(List<BotActionStep> steps, BotPerception perception) {
+        if (perception == null || perception.position() == null) {
+            return;
+        }
+        BlockPos origin = perception.position();
+        long seed = perception.day() * 24000L + perception.timeOfDay();
+        int dx = (int) Math.floorMod(seed * 31L + origin.getX(), 11L) - 5;
+        int dz = (int) Math.floorMod(seed * 17L + origin.getZ(), 11L) - 5;
+        if (dx == 0 && dz == 0) {
+            dx = 3;
+        }
+        BlockPos target = origin.offset(dx, 0, dz);
+        steps.add(new BotActionStep(BotActionType.MOVE, target, "", 1, actionTimeoutTicks));
     }
 
     private BlockPos findTargetBlock(BotPerception perception, List<String> preferredIds) {
@@ -715,8 +741,8 @@ public final class AIPlayerRuntime {
         if (pos == null) {
             return results;
         }
-        for (int dx = -radius; dx <= radius; dx += 2) {
-            for (int dz = -radius; dz <= radius; dz += 2) {
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
                 for (int dy = -2; dy <= 2; dy++) {
                     BlockPos checkPos = pos.offset(dx, dy, dz);
                     BlockState state = level.getBlockState(checkPos);
