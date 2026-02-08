@@ -197,6 +197,7 @@ public final class AIPlayerRuntime {
         actionExecutor.tick(level, bot, botName);
         if (currentPlan != null && actionExecutor.isIdle()) {
             currentPlan = null;
+            actionExecutor.clearPlan();
         }
         processSurvivalLoop(level);
 

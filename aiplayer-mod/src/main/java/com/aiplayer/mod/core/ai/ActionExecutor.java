@@ -131,8 +131,7 @@ public final class ActionExecutor {
         if (distance <= 2.25) {
             return ActionResult.success("arrived");
         }
-        bot.getNavigation().moveTo(target.x, target.y, target.z, 1.1);
-        bot.getMoveControl().setWantedPosition(target.x, target.y, target.z, 1.1);
+        moveBotToward(level, bot, target, 1.1);
         return ActionResult.running("moving");
     }
 
@@ -144,8 +143,7 @@ public final class ActionExecutor {
             Vec3 target = resolveApproachTarget(level, step.target());
             double distance = bot.position().distanceToSqr(target);
             if (distance > 9.0) {
-                bot.getNavigation().moveTo(target.x, target.y, target.z, 1.1);
-                bot.getMoveControl().setWantedPosition(target.x, target.y, target.z, 1.1);
+                moveBotToward(level, bot, target, 1.1);
                 return ActionResult.running("moving to target");
             }
         }
@@ -169,8 +167,7 @@ public final class ActionExecutor {
             Vec3 target = resolveApproachTarget(level, step.target());
             double distance = bot.position().distanceToSqr(target);
             if (distance > 9.0) {
-                bot.getNavigation().moveTo(target.x, target.y, target.z, 1.1);
-                bot.getMoveControl().setWantedPosition(target.x, target.y, target.z, 1.1);
+                moveBotToward(level, bot, target, 1.1);
                 return ActionResult.running("moving to target");
             }
         }
@@ -274,6 +271,39 @@ public final class ActionExecutor {
 
         // Fallback: keep a nearby point even if not ideal.
         return new Vec3(target.getX() + 1.5, target.getY(), target.getZ() + 0.5);
+    }
+
+    private void moveBotToward(ServerLevel level, AIBotEntity bot, Vec3 target, double speed) {
+        boolean started = bot.getNavigation().moveTo(target.x, target.y, target.z, speed);
+        bot.getMoveControl().setWantedPosition(target.x, target.y, target.z, speed);
+
+        if (started) {
+            return;
+        }
+
+        // Fallback when pathfinding fails (dense jungle, partial obstacles):
+        // nudge the entity toward target so it does not stay frozen on MOVE steps.
+        Vec3 current = bot.position();
+        Vec3 delta = target.subtract(current);
+        Vec3 horizontal = new Vec3(delta.x, 0.0, delta.z);
+        if (horizontal.lengthSqr() < 0.0001) {
+            return;
+        }
+
+        Vec3 step = horizontal.normalize().scale(0.35);
+        BlockPos nextFeetPos = BlockPos.containing(current.x + step.x, current.y, current.z + step.z);
+        double nextY = current.y;
+        if (!isStandable(level, nextFeetPos)) {
+            BlockPos above = nextFeetPos.above();
+            if (isStandable(level, above)) {
+                nextFeetPos = above;
+                nextY = above.getY();
+            } else {
+                return;
+            }
+        }
+
+        bot.setPos(nextFeetPos.getX() + 0.5, nextY, nextFeetPos.getZ() + 0.5);
     }
 
     private boolean isStandable(ServerLevel level, BlockPos pos) {
