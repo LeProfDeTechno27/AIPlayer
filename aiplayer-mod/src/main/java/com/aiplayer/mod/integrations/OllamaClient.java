@@ -26,6 +26,8 @@ public final class OllamaClient {
     private final HttpClient httpClient;
     private final String baseUrl;
     private final String model;
+    private final Duration structuredTimeout;
+    private final Duration chatTimeout;
     private Instant lastFailureAt;
     private int failureStreak;
 
@@ -35,16 +37,18 @@ public final class OllamaClient {
             .build();
         this.baseUrl = baseUrl;
         this.model = model;
+        this.structuredTimeout = resolveDuration("aiplayer.ollama.structuredTimeoutSeconds", "AIPLAYER_OLLAMA_STRUCTURED_TIMEOUT_SECONDS", 45, 10, 180);
+        this.chatTimeout = resolveDuration("aiplayer.ollama.chatTimeoutSeconds", "AIPLAYER_OLLAMA_CHAT_TIMEOUT_SECONDS", 20, 5, 120);
     }
 
     public Optional<String> ask(String question, String objective) {
         String system = "Tu es un bot Minecraft utile et concis. Reponds en une phrase actionnable.";
         String user = "Objectif courant: " + objective + " | Question: " + question;
-        return askWithPrompts(system, user, Duration.ofSeconds(8));
+        return askWithPrompts(system, user, chatTimeout);
     }
 
     public Optional<String> askStructured(String systemPrompt, String userPrompt) {
-        return askWithPrompts(systemPrompt, userPrompt, Duration.ofSeconds(12));
+        return askWithPrompts(systemPrompt, userPrompt, structuredTimeout);
     }
 
     private Optional<String> askWithPrompts(String systemPrompt, String userPrompt, Duration timeout) {
@@ -170,6 +174,26 @@ public final class OllamaClient {
             .replace("\n", "\\n")
             .replace("\r", "\\r")
             .replace("\t", "\\t");
+    }
+
+    private Duration resolveDuration(String propertyKey, String envKey, int defaultSeconds, int minSeconds, int maxSeconds) {
+        String prop = System.getProperty(propertyKey);
+        String env = System.getenv(envKey);
+        String raw = (prop != null && !prop.isBlank()) ? prop : env;
+        int seconds = defaultSeconds;
+        if (raw != null && !raw.isBlank()) {
+            try {
+                seconds = Integer.parseInt(raw.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (seconds < minSeconds) {
+            seconds = minSeconds;
+        }
+        if (seconds > maxSeconds) {
+            seconds = maxSeconds;
+        }
+        return Duration.ofSeconds(seconds);
     }
 
     private boolean shouldBackoff() {
