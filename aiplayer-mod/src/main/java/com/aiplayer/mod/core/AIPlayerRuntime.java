@@ -34,6 +34,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.phys.Vec3;
 
 import java.time.Duration;
@@ -72,6 +73,8 @@ public final class AIPlayerRuntime {
     private Instant lastMineAt;
     private Instant lastCraftAt;
     private Instant lastSleepAt;
+    private Instant lastLootCollectAt;
+    private Instant lastInventoryManageAt;
     private Instant lastSurvivalAt;
     private Instant lastDecisionStatsAt;
     private Instant lastTickLogAt;
@@ -422,6 +425,12 @@ public final class AIPlayerRuntime {
         if (perception.hunger() <= 6) {
             return new BotGoal("find_food", "Trouver et manger de la nourriture", "heuristic", "ACTIVE", Instant.now());
         }
+        if (!hasWorkshopNearby(perception)) {
+            return new BotGoal("starter_base", "Installer atelier: table + four + coffre", "heuristic", "ACTIVE", Instant.now());
+        }
+        if (needsShelter(perception)) {
+            return new BotGoal("build_shelter", "Construire un abri simple en bois", "heuristic", "ACTIVE", Instant.now());
+        }
         if (!inventoryContains(inventory, "minecraft:crafting_table")) {
             return new BotGoal("starter_base", "Fabriquer une table de craft et un four", "heuristic", "ACTIVE", Instant.now());
         }
@@ -435,13 +444,18 @@ public final class AIPlayerRuntime {
             return new BotGoal("starter_base", "Installer un coffre pour stocker", "heuristic", "ACTIVE", Instant.now());
         }
         if (!inventoryContains(inventory, "minecraft:wooden_pickaxe")) {
-            return new BotGoal("starter_tools", "Fabriquer des outils en bois", "heuristic", "ACTIVE", Instant.now());
+            return new BotGoal("starter_tools", "Fabriquer outils et arme en bois", "heuristic", "ACTIVE", Instant.now());
         }
-        if (!inventoryContains(inventory, "minecraft:stone_pickaxe")) {
-            return new BotGoal("upgrade_tools", "Passer aux outils en pierre", "heuristic", "ACTIVE", Instant.now());
+        if (!inventoryContains(inventory, "minecraft:wooden_sword")) {
+            return new BotGoal("starter_tools", "Fabriquer une epee en bois", "heuristic", "ACTIVE", Instant.now());
         }
-        if (!inventoryContains(inventory, "minecraft:iron_pickaxe")) {
-            return new BotGoal("upgrade_tools", "Obtenir des outils en fer", "heuristic", "ACTIVE", Instant.now());
+        if (!inventoryContains(inventory, "minecraft:stone_pickaxe")
+            || !inventoryContains(inventory, "minecraft:stone_sword")) {
+            return new BotGoal("upgrade_tools", "Passer aux outils/armes en pierre", "heuristic", "ACTIVE", Instant.now());
+        }
+        if (!inventoryContains(inventory, "minecraft:iron_pickaxe")
+            || !inventoryContains(inventory, "minecraft:iron_sword")) {
+            return new BotGoal("upgrade_tools", "Obtenir des outils/armes en fer", "heuristic", "ACTIVE", Instant.now());
         }
         if (!inventoryContains(inventory, "minecraft:diamond_pickaxe")) {
             return new BotGoal("mine_diamond", "Chercher du diamant", "heuristic", "ACTIVE", Instant.now());
@@ -492,6 +506,57 @@ public final class AIPlayerRuntime {
             }
         }
         return false;
+    }
+
+    private boolean hasWorkshopNearby(BotPerception perception) {
+        if (perception == null || perception.nearbyBlocks() == null) {
+            return false;
+        }
+        boolean hasTable = false;
+        boolean hasFurnace = false;
+        boolean hasStorage = false;
+        for (String entry : perception.nearbyBlocks()) {
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            int split = entry.indexOf('@');
+            if (split <= 0) {
+                continue;
+            }
+            String blockId = entry.substring(0, split);
+            if ("minecraft:crafting_table".equals(blockId)) {
+                hasTable = true;
+            } else if ("minecraft:furnace".equals(blockId) || "minecraft:blast_furnace".equals(blockId)) {
+                hasFurnace = true;
+            } else if ("minecraft:chest".equals(blockId) || "minecraft:barrel".equals(blockId)) {
+                hasStorage = true;
+            }
+        }
+        return hasTable && hasFurnace && hasStorage;
+    }
+
+    private boolean needsShelter(BotPerception perception) {
+        if (perception == null || perception.nearbyBlocks() == null) {
+            return true;
+        }
+        int structural = 0;
+        for (String entry : perception.nearbyBlocks()) {
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            int split = entry.indexOf('@');
+            if (split <= 0) {
+                continue;
+            }
+            String blockId = entry.substring(0, split);
+            if (blockId.endsWith("_planks")
+                || blockId.endsWith("_log")
+                || "minecraft:cobblestone".equals(blockId)
+                || "minecraft:stone_bricks".equals(blockId)) {
+                structural++;
+            }
+        }
+        return structural < 8;
     }
 
     private BotActionPlan sanitizePlan(BotActionPlan plan) {
@@ -631,18 +696,38 @@ public final class AIPlayerRuntime {
                 if (!hasBed(inventory)) {
                     steps.add(new BotActionStep(BotActionType.CRAFT, null, "minecraft:white_bed", 1, actionTimeoutTicks));
                 }
+                addCraftIfMissing(steps, inventory, "minecraft:oak_planks");
                 addPlaceIfPossible(steps, perception, inventory, "minecraft:crafting_table");
                 addPlaceIfPossible(steps, perception, inventory, "minecraft:furnace");
                 addPlaceIfPossible(steps, perception, inventory, "minecraft:chest");
+                addSimpleShelterSteps(steps, perception, "minecraft:oak_planks", 4);
             }
-            case "starter_tools" -> addCraftIfMissing(steps, inventory, "minecraft:wooden_pickaxe");
+            case "build_shelter" -> {
+                if (!inventoryContains(inventory, "minecraft:oak_planks")) {
+                    addCraftIfMissing(steps, inventory, "minecraft:oak_planks");
+                }
+                addSimpleShelterSteps(steps, perception, "minecraft:oak_planks", 8);
+                addPlaceIfPossible(steps, perception, inventory, "minecraft:white_bed");
+            }
+            case "starter_tools" -> {
+                addCraftIfMissing(steps, inventory, "minecraft:wooden_pickaxe");
+                addCraftIfMissing(steps, inventory, "minecraft:wooden_axe");
+                addCraftIfMissing(steps, inventory, "minecraft:wooden_sword");
+            }
             case "upgrade_tools" -> {
                 if (!inventoryContains(inventory, "minecraft:stone_pickaxe")) {
                     addCraftIfMissing(steps, inventory, "minecraft:stone_pickaxe");
+                    addCraftIfMissing(steps, inventory, "minecraft:stone_axe");
+                    addCraftIfMissing(steps, inventory, "minecraft:stone_sword");
                 } else if (!inventoryContains(inventory, "minecraft:iron_pickaxe")) {
                     addCraftIfMissing(steps, inventory, "minecraft:iron_pickaxe");
+                    addCraftIfMissing(steps, inventory, "minecraft:iron_axe");
+                    addCraftIfMissing(steps, inventory, "minecraft:iron_sword");
+                    addCraftIfMissing(steps, inventory, "minecraft:shield");
                 } else if (!inventoryContains(inventory, "minecraft:diamond_pickaxe")) {
                     addCraftIfMissing(steps, inventory, "minecraft:diamond_pickaxe");
+                    addCraftIfMissing(steps, inventory, "minecraft:diamond_axe");
+                    addCraftIfMissing(steps, inventory, "minecraft:diamond_sword");
                 }
             }
             case "find_food" -> {
@@ -712,6 +797,44 @@ public final class AIPlayerRuntime {
             return;
         }
         steps.add(new BotActionStep(BotActionType.PLACE, target, blockId, 1, actionTimeoutTicks));
+    }
+
+    private void addSimpleShelterSteps(
+        List<BotActionStep> steps,
+        BotPerception perception,
+        String blockId,
+        int maxPlacements
+    ) {
+        if (perception == null || perception.position() == null || maxPlacements <= 0) {
+            return;
+        }
+        BlockPos origin = perception.position();
+        BlockPos[] pattern = new BlockPos[] {
+            origin.offset(2, 0, 0),
+            origin.offset(-2, 0, 0),
+            origin.offset(0, 0, 2),
+            origin.offset(0, 0, -2),
+            origin.offset(2, 1, 0),
+            origin.offset(-2, 1, 0),
+            origin.offset(0, 1, 2),
+            origin.offset(0, 1, -2),
+            origin.offset(2, 2, 0),
+            origin.offset(-2, 2, 0),
+            origin.offset(0, 2, 2),
+            origin.offset(0, 2, -2)
+        };
+        int added = 0;
+        for (BlockPos target : pattern) {
+            if (isBlockNearby(perception, blockId) && added >= 2) {
+                // Stop early if shelter materials already present around the bot.
+                break;
+            }
+            steps.add(new BotActionStep(BotActionType.PLACE, target, blockId, 1, actionTimeoutTicks));
+            added++;
+            if (added >= maxPlacements) {
+                break;
+            }
+        }
     }
 
     private boolean addMoveMineStep(List<BotActionStep> steps, BotPerception perception, List<String> preferredIds) {
@@ -1630,6 +1753,11 @@ public final class AIPlayerRuntime {
         }
 
         if (botFakePlayer != null) {
+            collectNearbyDrops(level, bot, botFakePlayer);
+            if (lastInventoryManageAt == null || Duration.between(lastInventoryManageAt, now).toSeconds() >= 20) {
+                ensureInventorySpace(botFakePlayer);
+                lastInventoryManageAt = now;
+            }
             consumeFoodIfNeeded(botFakePlayer);
             bot.setHealth(botFakePlayer.getHealth());
         }
@@ -1763,6 +1891,99 @@ public final class AIPlayerRuntime {
     }
 
     public record BotAskResult(long interactionId, String response) {
+    }
+
+    private void collectNearbyDrops(ServerLevel level, AIBotEntity bot, FakePlayer player) {
+        if (level == null || bot == null || player == null) {
+            return;
+        }
+        Instant now = Instant.now();
+        if (lastLootCollectAt != null && Duration.between(lastLootCollectAt, now).toMillis() < 500) {
+            return;
+        }
+        lastLootCollectAt = now;
+
+        AABB pickupBox = new AABB(bot.blockPosition()).inflate(2.5, 1.5, 2.5);
+        List<ItemEntity> drops = level.getEntitiesOfClass(ItemEntity.class, pickupBox, entity -> entity != null && !entity.getItem().isEmpty());
+        int collected = 0;
+        for (ItemEntity drop : drops) {
+            ItemStack stack = drop.getItem();
+            if (stack == null || stack.isEmpty()) {
+                continue;
+            }
+            ItemStack remaining = stack.copy();
+            int before = remaining.getCount();
+            player.getInventory().add(remaining);
+            int picked = before - remaining.getCount();
+            if (picked <= 0) {
+                continue;
+            }
+            collected += picked;
+            if (remaining.isEmpty()) {
+                drop.discard();
+            } else {
+                drop.setItem(remaining);
+            }
+        }
+        if (collected > 0) {
+            this.memoryRepository.recordAction("bot-pickup", "count=" + collected);
+        }
+    }
+
+    private void ensureInventorySpace(FakePlayer player) {
+        if (player == null) {
+            return;
+        }
+        int emptySlots = countEmptyInventorySlots(player);
+        if (emptySlots >= 3) {
+            return;
+        }
+
+        final List<String> discardPriority = List.of(
+            "minecraft:dirt",
+            "minecraft:cobblestone",
+            "minecraft:gravel",
+            "minecraft:rotten_flesh",
+            "minecraft:oak_leaves",
+            "minecraft:jungle_leaves",
+            "minecraft:stick",
+            "minecraft:seed",
+            "minecraft:wheat_seeds",
+            "minecraft:flint"
+        );
+
+        int dropped = 0;
+        for (int i = 0; i < player.getInventory().items.size(); i++) {
+            ItemStack stack = player.getInventory().items.get(i);
+            if (stack == null || stack.isEmpty()) {
+                continue;
+            }
+            String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+            if (!discardPriority.contains(itemId)) {
+                continue;
+            }
+            ItemStack toDrop = stack.copy();
+            player.drop(toDrop, false);
+            stack.setCount(0);
+            dropped++;
+            if (countEmptyInventorySlots(player) >= 4) {
+                break;
+            }
+        }
+
+        if (dropped > 0) {
+            this.memoryRepository.recordAction("bot-inventory-clean", "dropped_stacks=" + dropped);
+        }
+    }
+
+    private int countEmptyInventorySlots(FakePlayer player) {
+        int empty = 0;
+        for (ItemStack stack : player.getInventory().items) {
+            if (stack == null || stack.isEmpty()) {
+                empty++;
+            }
+        }
+        return empty;
     }
 
     private void consumeFoodIfNeeded(FakePlayer player) {

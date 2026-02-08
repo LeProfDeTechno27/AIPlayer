@@ -290,6 +290,10 @@ public final class ActionExecutor {
     }
 
     private void moveBotToward(ServerLevel level, AIBotEntity bot, Vec3 target, double speed) {
+        if (tryStepUp(level, bot, target, speed)) {
+            return;
+        }
+
         boolean started = bot.getNavigation().moveTo(target.x, target.y, target.z, speed);
         bot.getMoveControl().setWantedPosition(target.x, target.y, target.z, speed);
 
@@ -320,6 +324,33 @@ public final class ActionExecutor {
         }
 
         bot.setPos(nextFeetPos.getX() + 0.5, nextY, nextFeetPos.getZ() + 0.5);
+    }
+
+    private boolean tryStepUp(ServerLevel level, AIBotEntity bot, Vec3 target, double speed) {
+        Vec3 current = bot.position();
+        Vec3 toTarget = new Vec3(target.x - current.x, 0.0, target.z - current.z);
+        if (toTarget.lengthSqr() < 0.01) {
+            return false;
+        }
+
+        Vec3 dir = toTarget.normalize();
+        BlockPos frontFeet = BlockPos.containing(current.x + dir.x * 0.8, current.y, current.z + dir.z * 0.8);
+        BlockPos frontStep = frontFeet.above();
+        BlockPos frontStepHead = frontStep.above();
+
+        boolean blockedFront = level.getBlockState(frontFeet).blocksMotion();
+        boolean freeStep = !level.getBlockState(frontStep).blocksMotion() && !level.getBlockState(frontStepHead).blocksMotion();
+        if (blockedFront && freeStep) {
+            bot.setPos(current.x + dir.x * 0.4, frontStep.getY(), current.z + dir.z * 0.4);
+            bot.getMoveControl().setWantedPosition(target.x, target.y, target.z, speed);
+            return true;
+        }
+
+        // Last jump nudge before teleport fallback.
+        if (bot.onGround()) {
+            bot.setDeltaMovement(bot.getDeltaMovement().x, 0.42, bot.getDeltaMovement().z);
+        }
+        return false;
     }
 
     private boolean isStandable(ServerLevel level, BlockPos pos) {
