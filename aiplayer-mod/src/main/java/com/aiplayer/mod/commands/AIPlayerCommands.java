@@ -1,11 +1,12 @@
 package com.aiplayer.mod.commands;
 
 import com.aiplayer.mod.core.AIPlayerRuntime;
-import com.aiplayer.mod.core.BotBrain;
+import com.aiplayer.mod.core.ai.BotGoal;
 import com.aiplayer.mod.integrations.AE2Bridge;
 import com.aiplayer.mod.integrations.MineColoniesBridge;
 import com.aiplayer.mod.persistence.BotMemoryRepository;
 import com.mojang.brigadier.CommandDispatcher;
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
@@ -16,6 +17,8 @@ import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -40,6 +43,7 @@ public final class AIPlayerCommands {
     private static final int DEFAULT_BOT_TASK_LIST_LIMIT = 5;
     private static final int DEFAULT_BOT_TASK_PRUNE_LIMIT = 20;
     private static final int DEFAULT_BOT_INTERACTION_LIST_LIMIT = 5;
+    private static final int DEFAULT_GOAL_LIST_LIMIT = 5;
 
     private static final List<String> BOT_TASK_STATUS_SUGGESTIONS = List.of("PENDING", "ACTIVE", "DONE", "CANCELED");
     private static final List<String> AE2_REQUEST_STATUS_SUGGESTIONS = List.of("PENDING", "DISPATCHED", "FAILED", "DONE", "CANCELED");
@@ -459,17 +463,55 @@ public final class AIPlayerCommands {
         var aiPlayerCommand = Commands.literal("aiplayer")
             .requires(source -> source.hasPermission(2))
             .then(Commands.literal("status")
-                .executes(context -> showStatus(context.getSource(), runtime)))
+                .executes(context -> showStatus(context.getSource(), runtime))
+                .then(Commands.literal("verbose")
+                    .executes(context -> showStatusVerbose(context.getSource(), runtime))))
+            .then(Commands.literal("goal")
+                .then(Commands.literal("set")
+                    .then(Commands.argument("name", StringArgumentType.word())
+                        .executes(context -> goalSet(
+                            context.getSource(),
+                            runtime,
+                            StringArgumentType.getString(context, "name"),
+                            ""
+                        ))
+                        .then(Commands.argument("description", StringArgumentType.greedyString())
+                            .executes(context -> goalSet(
+                                context.getSource(),
+                                runtime,
+                                StringArgumentType.getString(context, "name"),
+                                StringArgumentType.getString(context, "description")
+                            )))))
+                .then(Commands.literal("list")
+                    .executes(context -> goalList(context.getSource(), runtime, DEFAULT_GOAL_LIST_LIMIT))
+                    .then(Commands.argument("limit", IntegerArgumentType.integer(1, 20))
+                        .executes(context -> goalList(
+                            context.getSource(),
+                            runtime,
+                            IntegerArgumentType.getInteger(context, "limit")
+                        )))))
+            .then(Commands.literal("pause")
+                .executes(context -> pauseAI(context.getSource(), runtime)))
+            .then(Commands.literal("resume")
+                .executes(context -> resumeAI(context.getSource(), runtime)))
+            .then(Commands.literal("debug")
+                .then(Commands.argument("enabled", BoolArgumentType.bool())
+                    .executes(context -> debugAI(
+                        context.getSource(),
+                        runtime,
+                        BoolArgumentType.getBool(context, "enabled")
+                    )))
+                .executes(context -> debugAI(context.getSource(), runtime, !runtime.isDebug())))
             .then(Commands.literal("spawn")
                 .then(Commands.argument("name", StringArgumentType.word())
-                    .executes(context -> spawnMarkerNamed(
+                    .executes(context -> spawnBotNamed(
                         context.getSource(),
                         runtime,
                         StringArgumentType.getString(context, "name")
                     )))
-                .executes(context -> spawnMarker(context.getSource(), runtime)))
+                .executes(context -> spawnBotNamed(context.getSource(), runtime, "AIPlayer Bot")))
             .then(Commands.literal("despawn")
-                .executes(context -> despawnMarker(context.getSource(), runtime)))
+                .executes(context -> despawnBot(context.getSource(), runtime)))
             .then(Commands.literal("tick")
                 .executes(context -> tickOnce(context.getSource(), runtime)))
             .then(Commands.literal("phase")
@@ -581,7 +623,10 @@ public final class AIPlayerCommands {
 
     private static int showStatus(CommandSourceStack source, AIPlayerRuntime runtime) {
         StringJoiner joiner = new StringJoiner(", ");
-        BotBrain.DecisionStats stats = runtime.getDecisionStats();
+        AIPlayerRuntime.DecisionStats stats = runtime.getDecisionStats();
+        String lastDecision = stats.lastDecisionAt() == null
+            ? "never"
+            : Duration.between(stats.lastDecisionAt(), Instant.now()).toSeconds() + "s";
         runtime.getEnabledModules().forEach(joiner::add);
 
         source.sendSuccess(
@@ -590,7 +635,7 @@ public final class AIPlayerCommands {
                     + " | objective=" + runtime.getCurrentObjective()
                     + " | xp=" + runtime.getBotXp() + " (" + runtime.getBotSkillTier() + ")"
                     + " | botTasks=" + runtime.countOpenBotTasks()
-                    + " | decisions=" + stats.totalDecisions() + " cache=" + stats.cacheHits() + " rateLimit=" + stats.rateLimitSkips()
+                    + " | decisions=" + stats.decisionsMade() + " skipped=" + stats.decisionSkips() + " last=" + lastDecision
                     + " | bot=" + runtime.getBotVitals(source.getLevel())
                         .map(v -> String.format("health=%.1f/%.1f hunger=%d", v.health(), v.maxHealth(), v.hunger()))
                         .orElse("none")
@@ -599,6 +644,80 @@ public final class AIPlayerCommands {
             ),
             false
         );
+        return 1;
+    }
+
+    private static int showStatusVerbose(CommandSourceStack source, AIPlayerRuntime runtime) {
+        BotGoal goal = runtime.getActiveGoal();
+        String goalText = (goal == null)
+            ? "none"
+            : goal.name() + " (" + goal.source() + ")" + (goal.description().isBlank() ? "" : " " + goal.description());
+
+        source.sendSuccess(
+            () -> Component.literal("paused=" + runtime.isPaused() + " debug=" + runtime.isDebug() + " goal=" + goalText),
+            false
+        );
+        source.sendSuccess(
+            () -> Component.literal("plan=" + runtime.getCurrentPlanSummary()),
+            false
+        );
+        source.sendSuccess(
+            () -> Component.literal("step=" + runtime.getCurrentStepSummary()),
+            false
+        );
+        source.sendSuccess(
+            () -> Component.literal("perception=" + runtime.getLastPerceptionSummary()),
+            false
+        );
+        return 1;
+    }
+
+    private static int goalSet(CommandSourceStack source, AIPlayerRuntime runtime, String name, String description) {
+        BotGoal goal = runtime.setActiveGoal(name, description, source.getTextName());
+        source.sendSuccess(
+            () -> Component.literal("Goal set: " + goal.name() + " (" + goal.source() + ")"),
+            false
+        );
+        return 1;
+    }
+
+    private static int goalList(CommandSourceStack source, AIPlayerRuntime runtime, int limit) {
+        List<BotGoal> goals = runtime.listGoals(limit);
+        if (goals.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("No goals recorded"), false);
+            return 1;
+        }
+        StringJoiner joiner = new StringJoiner(" | ");
+        for (BotGoal goal : goals) {
+            joiner.add(goal.name() + ":" + goal.status() + ":" + goal.source());
+        }
+        source.sendSuccess(() -> Component.literal("Goals: " + joiner), false);
+        return 1;
+    }
+
+    private static int pauseAI(CommandSourceStack source, AIPlayerRuntime runtime) {
+        boolean updated = runtime.pauseAI();
+        if (!updated) {
+            source.sendFailure(Component.literal("AI already paused"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("AI paused"), false);
+        return 1;
+    }
+
+    private static int resumeAI(CommandSourceStack source, AIPlayerRuntime runtime) {
+        boolean updated = runtime.resumeAI();
+        if (!updated) {
+            source.sendFailure(Component.literal("AI already running"));
+            return 0;
+        }
+        source.sendSuccess(() -> Component.literal("AI resumed"), false);
+        return 1;
+    }
+
+    private static int debugAI(CommandSourceStack source, AIPlayerRuntime runtime, boolean enabled) {
+        runtime.setDebug(enabled);
+        source.sendSuccess(() -> Component.literal("AI debug=" + enabled), false);
         return 1;
     }
 
@@ -612,29 +731,7 @@ public final class AIPlayerCommands {
         return 1;
     }
 
-    private static int spawnMarker(CommandSourceStack source, AIPlayerRuntime runtime) {
-        boolean spawned = runtime.spawnBot(source.getLevel(), source.getPosition(), "AIPlayer Bot");
-        if (!spawned) {
-            source.sendFailure(Component.literal("Unable to spawn bot"));
-            return 0;
-        }
-
-        source.sendSuccess(() -> Component.literal("Bot spawned"), false);
-        return 1;
-    }
-
-    private static int spawnMarkerNamed(CommandSourceStack source, AIPlayerRuntime runtime, String markerName) {
-        boolean spawned = runtime.spawnBot(source.getLevel(), source.getPosition(), markerName);
-        if (!spawned) {
-            source.sendFailure(Component.literal("Unable to spawn bot"));
-            return 0;
-        }
-
-        source.sendSuccess(() -> Component.literal("Bot spawned: " + markerName), false);
-        return 1;
-    }
-
-    private static int despawnMarker(CommandSourceStack source, AIPlayerRuntime runtime) {
+    private static int despawnBot(CommandSourceStack source, AIPlayerRuntime runtime) {
         boolean removed = runtime.despawnBot(source.getLevel());
         if (!removed) {
             source.sendFailure(Component.literal("No tracked bot to despawn"));

@@ -29,7 +29,7 @@ import java.util.Locale;
 @Mod(ModMetadata.MOD_ID)
 public class AIPlayerMod {
     private static final Logger LOGGER = LoggerFactory.getLogger(AIPlayerMod.class);
-    private static final int AUTO_TICK_INTERVAL = 20;
+    private static final int AUTO_TICK_INTERVAL = 1;
 
     private final ModuleManager moduleManager;
     private final BotMemoryRepository memoryRepository;

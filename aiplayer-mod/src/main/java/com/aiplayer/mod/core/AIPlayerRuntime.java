@@ -6,6 +6,27 @@ import com.aiplayer.mod.integrations.AE2Bridge;
 import com.aiplayer.mod.integrations.MineColoniesBridge;
 import com.aiplayer.mod.integrations.OllamaClient;
 import com.aiplayer.mod.persistence.BotMemoryRepository;
+import com.aiplayer.mod.core.ai.ActionExecutor;
+import com.aiplayer.mod.core.ai.BotActionPlan;
+import com.aiplayer.mod.core.ai.BotActionStep;
+import com.aiplayer.mod.core.ai.BotActionType;
+import com.aiplayer.mod.core.ai.BotGoal;
+import com.aiplayer.mod.core.ai.BotMemoryService;
+import com.aiplayer.mod.core.ai.BotPerception;
+import com.aiplayer.mod.core.ai.BotPlanner;
+import com.aiplayer.mod.core.ai.FakePlayerController;
+import net.minecraft.core.Holder;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.BlockTags;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
+import net.neoforged.neoforge.common.util.FakePlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -34,11 +55,16 @@ public final class AIPlayerRuntime {
     private final MineColoniesBridge mineColoniesBridge;
     private final AE2Bridge ae2Bridge;
     private final OllamaClient ollamaClient;
-    private final BotBrain botBrain;
+    private final BotMemoryService memoryService;
+    private final FakePlayerController fakePlayerController;
+    private final BotPlanner botPlanner;
+    private final ActionExecutor actionExecutor;
 
     private String phase;
     private UUID botMarkerEntityId;
     private UUID botEntityId;
+    private String botName = "AIPlayer Bot";
+    private FakePlayer botFakePlayer;
     private int botHunger = 20;
     private Instant lastHungerAt;
     private Instant lastHealAt;
@@ -48,24 +74,28 @@ public final class AIPlayerRuntime {
     private Instant lastSleepAt;
     private Instant lastSurvivalAt;
     private Instant lastDecisionStatsAt;
-    private int lastDecisionStatsTotal;
-    private int lastDecisionStatsRateLimit;
-    private int lastDecisionStatsCache;
     private Instant lastTickLogAt;
-    private Instant lastDegradedDecisionAt;
-    private Instant lastDegradeLogAt;
-    private final Duration degradedDecisionInterval = resolveDegradedDecisionInterval();
     private final double maxMspt = resolveMaxMspt();
     private Instant lastMsptLogAt;
-    private final Duration pathCacheTtl = resolvePathCacheTtl();
     private final Duration recipeCacheTtl = resolveRecipeCacheTtl();
-    private Vec3 lastMoveTarget;
-    private Instant lastMoveTargetAt;
     private final Map<String, CachedRecipeRequest> recipeCache = new HashMap<>();
     private long survivalMinutes;
     private boolean survivalDayLogged;
     private String currentObjective;
     private int botXp;
+    private BotActionPlan currentPlan;
+    private BotPerception lastPerception;
+    private BotGoal activeGoal;
+    private Instant lastPerceptionAt;
+    private Instant lastDecisionAt;
+    private int decisionTickCounter;
+    private int decisionsMade;
+    private int decisionSkips;
+    private boolean paused;
+    private boolean debug = resolveDebug();
+    private final int decisionIntervalTicks = resolveDecisionIntervalTicks();
+    private final int actionTimeoutTicks = resolveActionTimeoutTicks();
+    private final int maxPlanSteps = resolveMaxPlanSteps();
 
     public AIPlayerRuntime(ModuleManager moduleManager, BotMemoryRepository memoryRepository) {
         this.moduleManager = moduleManager;
@@ -73,10 +103,14 @@ public final class AIPlayerRuntime {
         this.mineColoniesBridge = new MineColoniesBridge();
         this.ae2Bridge = new AE2Bridge();
         this.ollamaClient = new OllamaClient(resolveOllamaUrl(), resolveOllamaModel());
-        this.botBrain = new BotBrain(this.ollamaClient, resolveDecisionInterval());
+        this.memoryService = new BotMemoryService(this.memoryRepository);
+        this.fakePlayerController = new FakePlayerController();
+        this.botPlanner = new BotPlanner(this.ollamaClient);
+        this.actionExecutor = new ActionExecutor(this.fakePlayerController, this.memoryService);
         this.phase = this.memoryRepository.loadCurrentPhase().orElse("bootstrap");
         this.currentObjective = this.memoryRepository.loadCurrentBotTask().map(BotMemoryRepository.BotTask::objective).orElse("none");
         this.botXp = this.memoryRepository.loadBotXp().orElse(0);
+        this.activeGoal = this.memoryService.loadActiveGoal().orElse(null);
     }
 
     public void initialize() {
@@ -143,45 +177,85 @@ public final class AIPlayerRuntime {
         this.moduleManager.tickEnabled();
         processBotTaskLifecycle();
         processPendingAe2CraftRequests();
-        boolean allowBrain = !shouldThrottleForMspt(level, now);
-        int bufferSize = this.memoryRepository.getActionBufferSize();
-        int bufferWarn = this.memoryRepository.getActionBufferWarnThreshold();
-        int degradeThreshold = Math.max(1, bufferWarn / 2);
-        if (!allowBrain) {
-            lastDegradedDecisionAt = null;
-        } else if (bufferSize >= bufferWarn) {
-            this.memoryRepository.recordAction("bot-brain-throttle", "action-buffer size=" + bufferSize);
-        } else if (bufferSize >= degradeThreshold) {
-            if (shouldAllowDegradedDecision(now)) {
-                processBotBrainDecision(level);
-                lastDegradedDecisionAt = now;
-            } else {
-                logDegradedSkip(now, bufferSize, bufferWarn);
-            }
-        } else {
-            processBotBrainDecision(level);
-            lastDegradedDecisionAt = null;
-        }
-        processSurvivalLoop(level);
-        recordDecisionStats(now);
-        recordTickLog(now);
-    }
-
-
-    private void processBotBrainDecision(ServerLevel level) {
-        if (getTrackedBot(level) == null) {
+        AIBotEntity bot = getTrackedBot(level);
+        if (bot == null) {
+            recordTickLog(now);
             return;
         }
-        BotBrain.BotDecisionContext context = new BotBrain.BotDecisionContext(this.phase, this.currentObjective);
-        this.botBrain.tick(context).ifPresent(decision -> {
-            this.memoryRepository.recordAction(
-                "bot-brain-decision",
-                "action=" + decision.action()
-                    + " state=" + decision.state()
-                    + " raw=" + decision.rawResponse()
-            );
-            executeDecision(level, decision);
-        });
+
+        ensureFakePlayer(level, bot);
+        actionExecutor.tick(level, bot, botName);
+        if (currentPlan != null && actionExecutor.isIdle()) {
+            currentPlan = null;
+        }
+        processSurvivalLoop(level);
+
+        if (paused) {
+            recordDecisionStats(now);
+            recordTickLog(now);
+            return;
+        }
+
+        if (shouldThrottleForMspt(level, now)) {
+            decisionSkips++;
+            recordDecisionStats(now);
+            recordTickLog(now);
+            return;
+        }
+
+        decisionTickCounter++;
+        if (decisionTickCounter < decisionIntervalTicks) {
+            recordDecisionStats(now);
+            recordTickLog(now);
+            return;
+        }
+        decisionTickCounter = 0;
+
+        if (!actionExecutor.isIdle()) {
+            decisionSkips++;
+            recordDecisionStats(now);
+            recordTickLog(now);
+            return;
+        }
+
+        lastPerception = collectPerception(level, bot);
+        lastPerceptionAt = now;
+        if (lastPerception != null) {
+            memoryService.recordInventorySnapshot(lastPerception.inventorySummary());
+            recordKnownLocations(level, lastPerception.nearbyBlocks());
+        }
+
+        BotGoal goal = resolveGoal(lastPerception);
+        if (goal == null) {
+            decisionSkips++;
+            recordDecisionStats(now);
+            recordTickLog(now);
+            return;
+        }
+
+        activeGoal = goal;
+        String memorySummary = buildMemorySummary();
+        BotActionPlan plan = botPlanner.plan(lastPerception, goal, memorySummary, maxPlanSteps);
+        BotActionPlan sanitized = sanitizePlan(plan);
+        if (sanitized == null || sanitized.isEmpty()) {
+            BotActionPlan fallback = buildHeuristicPlan(goal, lastPerception);
+            if (fallback == null || fallback.isEmpty()) {
+                decisionSkips++;
+                recordDecisionStats(now);
+                recordTickLog(now);
+                return;
+            }
+            sanitized = fallback;
+        }
+
+        currentPlan = sanitized;
+        actionExecutor.setPlan(sanitized);
+        decisionsMade++;
+        lastDecisionAt = now;
+        this.memoryRepository.recordAction("bot-plan", "goal=" + sanitized.goal() + " steps=" + sanitized.steps().size());
+
+        recordDecisionStats(now);
+        recordTickLog(now);
     }
 
     private boolean shouldThrottleForMspt(ServerLevel level, Instant now) {
@@ -229,51 +303,12 @@ public final class AIPlayerRuntime {
         if (lastDecisionStatsAt != null && Duration.between(lastDecisionStatsAt, now).compareTo(Duration.ofMinutes(5)) < 0) {
             return;
         }
-        BotBrain.DecisionStats stats = this.botBrain.getDecisionStats();
-        int deltaDecisions = stats.totalDecisions() - lastDecisionStatsTotal;
-        int deltaRateLimit = stats.rateLimitSkips() - lastDecisionStatsRateLimit;
-        int deltaCache = stats.cacheHits() - lastDecisionStatsCache;
-        if (deltaDecisions == 0 && deltaRateLimit == 0 && deltaCache == 0) {
-            lastDecisionStatsAt = now;
-            return;
-        }
+        String lastDecision = (lastDecisionAt == null) ? "never" : Duration.between(lastDecisionAt, now).toSeconds() + "s";
         this.memoryRepository.recordAction(
-            "bot-brain-stats",
-            "decisions=" + stats.totalDecisions()
-                + " cache=" + stats.cacheHits()
-                + " rateLimit=" + stats.rateLimitSkips()
+            "bot-planner-stats",
+            "decisions=" + decisionsMade + " skipped=" + decisionSkips + " last=" + lastDecision
         );
-        if (deltaRateLimit > 0) {
-            this.memoryRepository.recordAction(
-                "bot-brain-rate-limit",
-                "skipped=" + deltaRateLimit
-                    + " total=" + stats.rateLimitSkips()
-                    + " decisions=" + stats.totalDecisions()
-                    + " cache=" + stats.cacheHits()
-            );
-        }
         lastDecisionStatsAt = now;
-        lastDecisionStatsTotal = stats.totalDecisions();
-        lastDecisionStatsRateLimit = stats.rateLimitSkips();
-        lastDecisionStatsCache = stats.cacheHits();
-    }
-
-    private boolean shouldAllowDegradedDecision(Instant now) {
-        if (lastDegradedDecisionAt == null) {
-            return true;
-        }
-        return Duration.between(lastDegradedDecisionAt, now).compareTo(degradedDecisionInterval) >= 0;
-    }
-
-    private void logDegradedSkip(Instant now, int bufferSize, int bufferWarn) {
-        if (lastDegradeLogAt != null && Duration.between(lastDegradeLogAt, now).compareTo(Duration.ofMinutes(1)) < 0) {
-            return;
-        }
-        this.memoryRepository.recordAction(
-            "bot-brain-degraded",
-            "action-buffer size=" + bufferSize + " warn=" + bufferWarn
-        );
-        lastDegradeLogAt = now;
     }
 
     private void recordTickLog(Instant now) {
@@ -282,6 +317,491 @@ public final class AIPlayerRuntime {
         }
         this.memoryRepository.recordAction("tick", "ok");
         lastTickLogAt = now;
+    }
+
+    private void ensureFakePlayer(ServerLevel level, AIBotEntity bot) {
+        if (botFakePlayer == null || !botFakePlayer.getGameProfile().getName().equals(botName)) {
+            botFakePlayer = fakePlayerController.getOrCreate(level, botName);
+        }
+        if (botFakePlayer != null) {
+            fakePlayerController.syncPosition(botFakePlayer, bot.position());
+        }
+    }
+
+    private BotPerception collectPerception(ServerLevel level, AIBotEntity bot) {
+        FakePlayer player = botFakePlayer;
+        float health = player != null ? player.getHealth() : bot.getHealth();
+        float maxHealth = player != null ? player.getMaxHealth() : bot.getMaxHealth();
+        int hunger = player != null ? player.getFoodData().getFoodLevel() : botHunger;
+        int xp = botXp;
+        BlockPos pos = bot.blockPosition();
+        String dimension = level.dimension().location().toString();
+        String biome = resolveBiomeName(level, pos);
+        long dayTime = level.getDayTime();
+        long day = dayTime / 24000L;
+        long timeOfDay = dayTime % 24000L;
+        List<String> nearbyEntities = scanNearbyEntities(level, pos, 12, 8);
+        List<String> nearbyBlocks = scanNearbyBlocks(level, pos, 6, 10);
+        List<String> inventorySummary = summarizeInventory(player);
+        List<String> equipmentSummary = summarizeEquipment(player);
+        return new BotPerception(
+            phase,
+            currentObjective,
+            health,
+            maxHealth,
+            hunger,
+            xp,
+            pos,
+            dimension,
+            biome,
+            timeOfDay,
+            day,
+            nearbyEntities,
+            nearbyBlocks,
+            inventorySummary,
+            equipmentSummary
+        );
+    }
+
+    private String resolveBiomeName(ServerLevel level, BlockPos pos) {
+        if (pos == null) {
+            return "unknown";
+        }
+        Holder<Biome> holder = level.getBiome(pos);
+        return holder.unwrapKey()
+            .map(key -> key.location().toString())
+            .orElse("unknown");
+    }
+
+    private BotGoal resolveGoal(BotPerception perception) {
+        Optional<BotGoal> manual = memoryService.loadActiveGoal();
+        if (manual.isPresent()) {
+            return manual.get();
+        }
+        if (currentObjective != null && !"none".equalsIgnoreCase(currentObjective)) {
+            return new BotGoal("task", currentObjective, "task", "ACTIVE", Instant.now());
+        }
+        if (perception == null) {
+            return null;
+        }
+        return resolveHeuristicGoal(perception);
+    }
+
+    private BotGoal resolveHeuristicGoal(BotPerception perception) {
+        List<String> inventory = perception.inventorySummary();
+        if (perception.hunger() <= 6) {
+            return new BotGoal("find_food", "Trouver et manger de la nourriture", "heuristic", "ACTIVE", Instant.now());
+        }
+        if (!inventoryContains(inventory, "minecraft:crafting_table")) {
+            return new BotGoal("starter_base", "Fabriquer une table de craft et un four", "heuristic", "ACTIVE", Instant.now());
+        }
+        if (!inventoryContains(inventory, "minecraft:furnace")) {
+            return new BotGoal("starter_base", "Installer un four pour cuire et fondre", "heuristic", "ACTIVE", Instant.now());
+        }
+        if (!hasBed(inventory)) {
+            return new BotGoal("starter_base", "Obtenir un lit pour passer la nuit", "heuristic", "ACTIVE", Instant.now());
+        }
+        if (!inventoryContains(inventory, "minecraft:chest")) {
+            return new BotGoal("starter_base", "Installer un coffre pour stocker", "heuristic", "ACTIVE", Instant.now());
+        }
+        if (!inventoryContains(inventory, "minecraft:wooden_pickaxe")) {
+            return new BotGoal("starter_tools", "Fabriquer des outils en bois", "heuristic", "ACTIVE", Instant.now());
+        }
+        if (!inventoryContains(inventory, "minecraft:stone_pickaxe")) {
+            return new BotGoal("upgrade_tools", "Passer aux outils en pierre", "heuristic", "ACTIVE", Instant.now());
+        }
+        if (!inventoryContains(inventory, "minecraft:iron_pickaxe")) {
+            return new BotGoal("upgrade_tools", "Obtenir des outils en fer", "heuristic", "ACTIVE", Instant.now());
+        }
+        if (!inventoryContains(inventory, "minecraft:diamond_pickaxe")) {
+            return new BotGoal("mine_diamond", "Chercher du diamant", "heuristic", "ACTIVE", Instant.now());
+        }
+        return new BotGoal("explore", "Explorer et collecter des ressources", "heuristic", "ACTIVE", Instant.now());
+    }
+
+    private boolean inventoryContains(List<String> inventory, String itemId) {
+        if (inventory == null || itemId == null) {
+            return false;
+        }
+        for (String entry : inventory) {
+            if (entry.startsWith(itemId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasBed(List<String> inventory) {
+        if (inventory == null) {
+            return false;
+        }
+        for (String entry : inventory) {
+            if (entry.contains("_bed")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private BotActionPlan sanitizePlan(BotActionPlan plan) {
+        if (plan == null) {
+            return null;
+        }
+        if (plan.steps().isEmpty()) {
+            return plan;
+        }
+        List<BotActionStep> steps = new java.util.ArrayList<>();
+        for (BotActionStep step : plan.steps()) {
+            int timeout = step.timeoutTicks();
+            if (timeout <= 0 || timeout > actionTimeoutTicks) {
+                timeout = actionTimeoutTicks;
+            }
+            int count = step.count() <= 0 ? 1 : step.count();
+            steps.add(new BotActionStep(step.type(), step.target(), step.itemId(), count, timeout));
+        }
+        return new BotActionPlan(plan.goal(), plan.rationale(), steps);
+    }
+
+    private String buildMemorySummary() {
+        StringBuilder builder = new StringBuilder();
+        if (activeGoal != null) {
+            appendMemoryPart(builder, "goal=" + activeGoal.name());
+        }
+        memoryService.loadLatestInventorySummary()
+            .ifPresent(summary -> appendMemoryPart(builder, "inventory=" + summary));
+
+        List<BotMemoryRepository.KnownLocationRecord> locations = memoryService.loadKnownLocations(5);
+        if (!locations.isEmpty()) {
+            appendMemoryPart(builder, "locations=" + formatLocations(locations));
+        }
+
+        List<BotMemoryRepository.ActionHistoryRecord> actions = memoryService.loadRecentActionHistory(5);
+        if (!actions.isEmpty()) {
+            appendMemoryPart(builder, "recent=" + formatActions(actions));
+        }
+
+        String summary = builder.toString();
+        if (summary.length() > 1000) {
+            return summary.substring(0, 1000);
+        }
+        return summary;
+    }
+
+    private void appendMemoryPart(StringBuilder builder, String part) {
+        if (part == null || part.isBlank()) {
+            return;
+        }
+        if (builder.length() > 0) {
+            builder.append(" | ");
+        }
+        builder.append(part);
+    }
+
+    private String formatLocations(List<BotMemoryRepository.KnownLocationRecord> locations) {
+        StringBuilder builder = new StringBuilder();
+        int count = 0;
+        for (BotMemoryRepository.KnownLocationRecord location : locations) {
+            if (count++ >= 5) {
+                break;
+            }
+            if (builder.length() > 0) {
+                builder.append(",");
+            }
+            builder.append(location.label())
+                .append("@")
+                .append(location.x())
+                .append(",")
+                .append(location.y())
+                .append(",")
+                .append(location.z());
+        }
+        return builder.toString();
+    }
+
+    private String formatActions(List<BotMemoryRepository.ActionHistoryRecord> actions) {
+        StringBuilder builder = new StringBuilder();
+        int count = 0;
+        for (BotMemoryRepository.ActionHistoryRecord action : actions) {
+            if (count++ >= 5) {
+                break;
+            }
+            if (builder.length() > 0) {
+                builder.append(",");
+            }
+            builder.append(action.actionType());
+            if (action.itemId() != null && !action.itemId().isBlank()) {
+                builder.append(":").append(action.itemId());
+            }
+            builder.append(action.success() ? ":ok" : ":fail");
+        }
+        return builder.toString();
+    }
+
+    private BotActionPlan buildHeuristicPlan(BotGoal goal, BotPerception perception) {
+        if (goal == null || perception == null) {
+            return null;
+        }
+        List<String> inventory = perception.inventorySummary();
+        List<BotActionStep> steps = new java.util.ArrayList<>();
+        String goalName = goal.name() == null ? "" : goal.name();
+
+        switch (goalName) {
+            case "starter_base" -> {
+                addCraftIfMissing(steps, inventory, "minecraft:crafting_table");
+                addCraftIfMissing(steps, inventory, "minecraft:furnace");
+                addCraftIfMissing(steps, inventory, "minecraft:chest");
+                if (!hasBed(inventory)) {
+                    steps.add(new BotActionStep(BotActionType.CRAFT, null, "minecraft:white_bed", 1, actionTimeoutTicks));
+                }
+            }
+            case "starter_tools" -> addCraftIfMissing(steps, inventory, "minecraft:wooden_pickaxe");
+            case "upgrade_tools" -> {
+                if (!inventoryContains(inventory, "minecraft:stone_pickaxe")) {
+                    addCraftIfMissing(steps, inventory, "minecraft:stone_pickaxe");
+                } else if (!inventoryContains(inventory, "minecraft:iron_pickaxe")) {
+                    addCraftIfMissing(steps, inventory, "minecraft:iron_pickaxe");
+                } else if (!inventoryContains(inventory, "minecraft:diamond_pickaxe")) {
+                    addCraftIfMissing(steps, inventory, "minecraft:diamond_pickaxe");
+                }
+            }
+            case "find_food" -> addCraftIfMissing(steps, inventory, "minecraft:bread");
+            case "mine_diamond" -> addMoveMineStep(steps, perception, List.of("minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"));
+            default -> addMoveMineStep(
+                steps,
+                perception,
+                List.of(
+                    "minecraft:iron_ore",
+                    "minecraft:deepslate_iron_ore",
+                    "minecraft:coal_ore",
+                    "minecraft:deepslate_coal_ore",
+                    "minecraft:oak_log",
+                    "minecraft:spruce_log",
+                    "minecraft:birch_log",
+                    "minecraft:jungle_log",
+                    "minecraft:acacia_log",
+                    "minecraft:dark_oak_log",
+                    "minecraft:mangrove_log"
+                )
+            );
+        }
+
+        if (steps.isEmpty()) {
+            steps.add(new BotActionStep(BotActionType.WAIT, null, "", 1, Math.min(80, actionTimeoutTicks)));
+        }
+        return new BotActionPlan(goal.name(), "heuristic", steps);
+    }
+
+    private void addCraftIfMissing(List<BotActionStep> steps, List<String> inventory, String itemId) {
+        if (inventoryContains(inventory, itemId)) {
+            return;
+        }
+        steps.add(new BotActionStep(BotActionType.CRAFT, null, itemId, 1, actionTimeoutTicks));
+    }
+
+    private void addMoveMineStep(List<BotActionStep> steps, BotPerception perception, List<String> preferredIds) {
+        BlockPos target = findTargetBlock(perception, preferredIds);
+        if (target == null) {
+            return;
+        }
+        steps.add(new BotActionStep(BotActionType.MOVE, target, "", 1, actionTimeoutTicks));
+        steps.add(new BotActionStep(BotActionType.MINE, target, "", 1, actionTimeoutTicks));
+    }
+
+    private BlockPos findTargetBlock(BotPerception perception, List<String> preferredIds) {
+        if (perception == null || perception.nearbyBlocks() == null || perception.nearbyBlocks().isEmpty()) {
+            return null;
+        }
+        if (preferredIds != null && !preferredIds.isEmpty()) {
+            for (String entry : perception.nearbyBlocks()) {
+                int split = entry.indexOf('@');
+                if (split <= 0) {
+                    continue;
+                }
+                String blockId = entry.substring(0, split);
+                if (!preferredIds.contains(blockId)) {
+                    continue;
+                }
+                BlockPos pos = parseBlockPos(entry.substring(split + 1));
+                if (pos != null) {
+                    return pos;
+                }
+            }
+        }
+
+        for (String entry : perception.nearbyBlocks()) {
+            int split = entry.indexOf('@');
+            if (split <= 0) {
+                continue;
+            }
+            BlockPos pos = parseBlockPos(entry.substring(split + 1));
+            if (pos != null) {
+                return pos;
+            }
+        }
+        return null;
+    }
+
+    private List<String> scanNearbyEntities(ServerLevel level, BlockPos pos, int radius, int limit) {
+        if (pos == null) {
+            return List.of();
+        }
+        AABB box = new AABB(pos).inflate(radius);
+        List<Entity> entities = level.getEntities(null, box, entity -> !(entity instanceof AIBotEntity) && !(entity instanceof FakePlayer));
+        List<String> results = new java.util.ArrayList<>();
+        for (Entity entity : entities) {
+            ResourceLocation key = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
+            if (key != null) {
+                results.add(key.toString());
+            }
+            if (results.size() >= limit) {
+                break;
+            }
+        }
+        return results;
+    }
+
+    private List<String> scanNearbyBlocks(ServerLevel level, BlockPos pos, int radius, int limit) {
+        List<String> results = new java.util.ArrayList<>();
+        if (pos == null) {
+            return results;
+        }
+        for (int dx = -radius; dx <= radius; dx += 2) {
+            for (int dz = -radius; dz <= radius; dz += 2) {
+                for (int dy = -2; dy <= 2; dy++) {
+                    BlockPos checkPos = pos.offset(dx, dy, dz);
+                    BlockState state = level.getBlockState(checkPos);
+                    if (state.isAir()) {
+                        continue;
+                    }
+                    if (!isInterestingBlock(state.getBlock())) {
+                        continue;
+                    }
+                    String blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+                    results.add(blockId + "@" + checkPos.getX() + "," + checkPos.getY() + "," + checkPos.getZ());
+                    if (results.size() >= limit) {
+                        return results;
+                    }
+                }
+            }
+        }
+        return results;
+    }
+
+    private boolean isInterestingBlock(Block block) {
+        if (block.defaultBlockState().is(BlockTags.LOGS)) {
+            return true;
+        }
+        if (block.defaultBlockState().is(BlockTags.BEDS)) {
+            return true;
+        }
+        return block == Blocks.CRAFTING_TABLE
+            || block == Blocks.FURNACE
+            || block == Blocks.BLAST_FURNACE
+            || block == Blocks.CHEST
+            || block == Blocks.BARREL
+            || block == Blocks.IRON_ORE
+            || block == Blocks.DEEPSLATE_IRON_ORE
+            || block == Blocks.COAL_ORE
+            || block == Blocks.DEEPSLATE_COAL_ORE
+            || block == Blocks.DIAMOND_ORE
+            || block == Blocks.DEEPSLATE_DIAMOND_ORE
+            || block == Blocks.GOLD_ORE
+            || block == Blocks.DEEPSLATE_GOLD_ORE
+            || block == Blocks.EMERALD_ORE
+            || block == Blocks.REDSTONE_ORE
+            || block == Blocks.DEEPSLATE_REDSTONE_ORE
+            || block == Blocks.LAPIS_ORE
+            || block == Blocks.DEEPSLATE_LAPIS_ORE;
+    }
+
+    private List<String> summarizeInventory(FakePlayer player) {
+        if (player == null) {
+            return List.of();
+        }
+        List<String> summary = new java.util.ArrayList<>();
+        for (ItemStack stack : player.getInventory().items) {
+            if (stack == null || stack.isEmpty()) {
+                continue;
+            }
+            String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+            summary.add(itemId + "x" + stack.getCount());
+            if (summary.size() >= 10) {
+                break;
+            }
+        }
+        return summary;
+    }
+
+    private List<String> summarizeEquipment(FakePlayer player) {
+        if (player == null) {
+            return List.of();
+        }
+        List<String> summary = new java.util.ArrayList<>();
+        ItemStack main = player.getMainHandItem();
+        if (!main.isEmpty()) {
+            summary.add("main=" + BuiltInRegistries.ITEM.getKey(main.getItem()));
+        }
+        ItemStack off = player.getOffhandItem();
+        if (!off.isEmpty()) {
+            summary.add("off=" + BuiltInRegistries.ITEM.getKey(off.getItem()));
+        }
+        for (net.minecraft.world.entity.EquipmentSlot slot : net.minecraft.world.entity.EquipmentSlot.values()) {
+            if (slot.getType() != net.minecraft.world.entity.EquipmentSlot.Type.ARMOR) {
+                continue;
+            }
+            ItemStack armor = player.getItemBySlot(slot);
+            if (!armor.isEmpty()) {
+                summary.add(slot.getName() + "=" + BuiltInRegistries.ITEM.getKey(armor.getItem()));
+            }
+        }
+        return summary;
+    }
+
+    private void recordKnownLocations(ServerLevel level, List<String> nearbyBlocks) {
+        if (nearbyBlocks == null || nearbyBlocks.isEmpty()) {
+            return;
+        }
+        String dimension = level.dimension().location().toString();
+        for (String entry : nearbyBlocks) {
+            int split = entry.indexOf('@');
+            if (split <= 0) {
+                continue;
+            }
+            String blockId = entry.substring(0, split);
+            BlockPos pos = parseBlockPos(entry.substring(split + 1));
+            if (pos == null) {
+                continue;
+            }
+            String label = switch (blockId) {
+                case "minecraft:crafting_table" -> "crafting_table";
+                case "minecraft:furnace", "minecraft:blast_furnace" -> "furnace";
+                case "minecraft:chest", "minecraft:barrel" -> "storage";
+                case "minecraft:diamond_ore", "minecraft:deepslate_diamond_ore" -> "diamond_ore";
+                case "minecraft:iron_ore", "minecraft:deepslate_iron_ore" -> "iron_ore";
+                default -> null;
+            };
+            if (label != null) {
+                memoryService.recordKnownLocation(label, pos, dimension);
+            }
+        }
+    }
+
+    private BlockPos parseBlockPos(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String[] parts = raw.split(",");
+        if (parts.length != 3) {
+            return null;
+        }
+        try {
+            int x = Integer.parseInt(parts[0].trim());
+            int y = Integer.parseInt(parts[1].trim());
+            int z = Integer.parseInt(parts[2].trim());
+            return new BlockPos(x, y, z);
+        } catch (NumberFormatException ignored) {
+            return null;
+        }
     }
     public boolean enableModule(String moduleName) {
         boolean enabled = this.moduleManager.enableModule(moduleName);
@@ -501,14 +1021,105 @@ public final class AIPlayerRuntime {
         return this.memoryRepository.loadRecentInteractions(limit);
     }
 
-    public java.util.Optional<BotBrain.BotDecision> getLastDecision() {
-        return this.botBrain.getLastDecision();
+    public DecisionStats getDecisionStats() {
+        return new DecisionStats(decisionsMade, decisionSkips, lastDecisionAt);
     }
 
-    public BotBrain.DecisionStats getDecisionStats() {
-        return this.botBrain.getDecisionStats();
+    public boolean isPaused() {
+        return paused;
     }
+
+    public boolean pauseAI() {
+        if (paused) {
+            return false;
+        }
+        paused = true;
+        this.memoryRepository.recordAction("bot-paused", "ok");
+        return true;
+    }
+
+    public boolean resumeAI() {
+        if (!paused) {
+            return false;
+        }
+        paused = false;
+        this.memoryRepository.recordAction("bot-resumed", "ok");
+        return true;
+    }
+
+    public boolean isDebug() {
+        return debug;
+    }
+
+    public void setDebug(boolean enabled) {
+        this.debug = enabled;
+        this.memoryRepository.recordAction("bot-debug", "enabled=" + enabled);
+    }
+
+    public BotGoal getActiveGoal() {
+        return activeGoal;
+    }
+
+    public BotGoal setActiveGoal(String name, String description, String source) {
+        BotGoal goal = memoryService.setActiveGoal(name, description, source);
+        this.activeGoal = goal;
+        this.memoryRepository.recordAction("bot-goal-set", "goal=" + goal.name() + " source=" + goal.source());
+        return goal;
+    }
+
+    public List<BotGoal> listGoals(int limit) {
+        int safeLimit = Math.max(1, Math.min(20, limit));
+        return memoryService.loadGoals(safeLimit);
+    }
+
+    public boolean pauseActiveGoal() {
+        boolean updated = memoryService.pauseActiveGoal();
+        if (updated) {
+            this.activeGoal = null;
+        }
+        return updated;
+    }
+
+    public boolean resumeActiveGoal() {
+        boolean updated = memoryService.resumeLastPausedGoal();
+        if (updated) {
+            this.activeGoal = memoryService.loadActiveGoal().orElse(null);
+        }
+        return updated;
+    }
+
+    public String getCurrentPlanSummary() {
+        BotActionPlan plan = actionExecutor.getCurrentPlan();
+        if (plan == null || plan.isEmpty()) {
+            return "none";
+        }
+        String rationale = plan.rationale();
+        return "goal=" + plan.goal() + " steps=" + plan.steps().size() + (rationale.isBlank() ? "" : " rationale=" + rationale);
+    }
+
+    public String getCurrentStepSummary() {
+        BotActionStep step = actionExecutor.getCurrentStep();
+        if (step == null) {
+            return "none";
+        }
+        String target = step.target() == null ? "none"
+            : step.target().getX() + "," + step.target().getY() + "," + step.target().getZ();
+        String item = (step.itemId() == null || step.itemId().isBlank()) ? "" : " item=" + step.itemId();
+        return step.type().name() + " target=" + target + item + " count=" + step.count() + " timeout=" + step.timeoutTicks();
+    }
+
+    public String getLastPerceptionSummary() {
+        return lastPerception == null ? "none" : lastPerception.summary();
+    }
+
     public java.util.Optional<BotVitals> getBotVitals(ServerLevel level) {
+        if (botFakePlayer != null) {
+            return java.util.Optional.of(new BotVitals(
+                botFakePlayer.getHealth(),
+                botFakePlayer.getMaxHealth(),
+                botFakePlayer.getFoodData().getFoodLevel()
+            ));
+        }
         AIBotEntity bot = getTrackedBot(level);
         if (bot == null) {
             return java.util.Optional.empty();
@@ -775,6 +1386,10 @@ public final class AIPlayerRuntime {
         boolean added = level.addFreshEntity(bot);
         if (added) {
             this.botEntityId = bot.getUUID();
+            this.botName = botName;
+            this.botFakePlayer = null;
+            this.currentPlan = null;
+            this.actionExecutor.clearPlan();
             this.memoryRepository.recordAction("spawn-bot", this.botEntityId + " name=" + botName);
         }
         return added;
@@ -793,6 +1408,9 @@ public final class AIPlayerRuntime {
         bot.discard();
         this.memoryRepository.recordAction("despawn-bot", bot.getUUID().toString());
         this.botEntityId = null;
+        this.botFakePlayer = null;
+        this.currentPlan = null;
+        this.actionExecutor.clearPlan();
         return true;
     }
 
@@ -812,45 +1430,6 @@ public final class AIPlayerRuntime {
         return getTrackedMarker(level) != null;
     }
 
-    private void executeDecision(ServerLevel level, BotBrain.BotDecision decision) {
-        AIBotEntity bot = getTrackedBot(level);
-        if (bot == null) {
-            return;
-        }
-
-        switch (decision.action()) {
-            case MOVE -> {
-                Vec3 target = resolveMoveTarget(bot, Instant.now());
-                bot.getNavigation().moveTo(target.x, target.y, target.z, 1.0);
-                this.memoryRepository.recordAction("bot-brain-action", "move target=" + target.x + "," + target.y + "," + target.z);
-            }
-            case INTERACT -> {
-                var player = level.getNearestPlayer(bot, 6.0);
-                if (player != null) {
-                    player.sendSystemMessage(Component.literal("AIPlayer: besoin d'aide pour " + this.currentObjective));
-                    this.memoryRepository.recordAction("bot-brain-action", "interact player=" + player.getGameProfile().getName());
-                }
-            }
-            case SLEEP -> this.memoryRepository.recordAction("bot-brain-action", "sleep requested");
-            case MINE -> this.memoryRepository.recordAction("bot-brain-action", "mine requested");
-            case CRAFT -> this.memoryRepository.recordAction("bot-brain-action", "craft requested");
-            case BUILD -> this.memoryRepository.recordAction("bot-brain-action", "build requested");
-            case IDLE -> this.memoryRepository.recordAction("bot-brain-action", "idle");
-        }
-    }
-
-    private Vec3 resolveMoveTarget(AIBotEntity bot, Instant now) {
-        if (lastMoveTarget != null && lastMoveTargetAt != null
-            && Duration.between(lastMoveTargetAt, now).compareTo(pathCacheTtl) < 0) {
-            return lastMoveTarget;
-        }
-        double dx = bot.getX() + (bot.getRandom().nextDouble() * 8.0 - 4.0);
-        double dz = bot.getZ() + (bot.getRandom().nextDouble() * 8.0 - 4.0);
-        double dy = bot.getY();
-        lastMoveTarget = new Vec3(dx, dy, dz);
-        lastMoveTargetAt = now;
-        return lastMoveTarget;
-    }
 
     private void processSurvivalLoop(ServerLevel level) {
         AIBotEntity bot = getTrackedBot(level);
@@ -859,6 +1438,12 @@ public final class AIPlayerRuntime {
         }
 
         Instant now = Instant.now();
+        if (botFakePlayer != null) {
+            botHunger = botFakePlayer.getFoodData().getFoodLevel();
+            bot.setHealth(botFakePlayer.getHealth());
+            advanceSurvivalClock(now);
+            return;
+        }
         if (lastHungerAt == null || Duration.between(lastHungerAt, now).toSeconds() >= 60) {
             botHunger = Math.max(0, botHunger - 1);
             lastHungerAt = now;
@@ -996,6 +1581,9 @@ public final class AIPlayerRuntime {
     public record BotAskResult(long interactionId, String response) {
     }
 
+    public record DecisionStats(int decisionsMade, int decisionSkips, Instant lastDecisionAt) {
+    }
+
     public record BotVitals(float health, float maxHealth, int hunger) {
     }
 
@@ -1096,14 +1684,91 @@ public final class AIPlayerRuntime {
         }
         return Duration.ofSeconds(seconds);
     }
+
+    private int resolveDecisionIntervalTicks() {
+        String prop = System.getProperty("aiplayer.decisionIntervalTicks");
+        String env = System.getenv("AIPLAYER_DECISION_INTERVAL_TICKS");
+        int ticks = 100;
+        String raw = (prop != null && !prop.isBlank()) ? prop : env;
+        if (raw != null && !raw.isBlank()) {
+            try {
+                ticks = Integer.parseInt(raw.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        } else {
+            ticks = (int) Math.max(20, resolveDecisionInterval().getSeconds() * 20);
+        }
+        if (ticks < 20) {
+            ticks = 20;
+        }
+        if (ticks > 1200) {
+            ticks = 1200;
+        }
+        return ticks;
+    }
+
+    private int resolveActionTimeoutTicks() {
+        String prop = System.getProperty("aiplayer.actionTimeoutTicks");
+        String env = System.getenv("AIPLAYER_ACTION_TIMEOUT_TICKS");
+        int ticks = 200;
+        String raw = (prop != null && !prop.isBlank()) ? prop : env;
+        if (raw != null && !raw.isBlank()) {
+            try {
+                ticks = Integer.parseInt(raw.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (ticks < 40) {
+            ticks = 40;
+        }
+        if (ticks > 2400) {
+            ticks = 2400;
+        }
+        return ticks;
+    }
+
+    private int resolveMaxPlanSteps() {
+        String prop = System.getProperty("aiplayer.maxPlanSteps");
+        String env = System.getenv("AIPLAYER_MAX_PLAN_STEPS");
+        int steps = 8;
+        String raw = (prop != null && !prop.isBlank()) ? prop : env;
+        if (raw != null && !raw.isBlank()) {
+            try {
+                steps = Integer.parseInt(raw.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (steps < 1) {
+            steps = 1;
+        }
+        if (steps > 25) {
+            steps = 25;
+        }
+        return steps;
+    }
+
+    private boolean resolveDebug() {
+        String prop = System.getProperty("aiplayer.debug");
+        String env = System.getenv("AIPLAYER_DEBUG");
+        String raw = (prop != null && !prop.isBlank()) ? prop : env;
+        if (raw == null || raw.isBlank()) {
+            return false;
+        }
+        return raw.trim().equalsIgnoreCase("true") || raw.trim().equals("1") || raw.trim().equalsIgnoreCase("yes");
+    }
+
     private String resolveOllamaUrl() {
+        String prop = System.getProperty("aiplayer.ollama.url");
         String env = System.getenv("AIPLAYER_OLLAMA_URL");
-        return (env == null || env.isBlank()) ? "http://localhost:11434" : env.trim();
+        String raw = (prop != null && !prop.isBlank()) ? prop : env;
+        return (raw == null || raw.isBlank()) ? "http://localhost:11434" : raw.trim();
     }
 
     private String resolveOllamaModel() {
+        String prop = System.getProperty("aiplayer.ollama.model");
         String env = System.getenv("AIPLAYER_OLLAMA_MODEL");
-        return (env == null || env.isBlank()) ? "qwen3:8b" : env.trim();
+        String raw = (prop != null && !prop.isBlank()) ? prop : env;
+        return (raw == null || raw.isBlank()) ? "llama3.1:8b" : raw.trim();
     }
 
 

@@ -105,6 +105,108 @@ public final class BotMemoryRepository {
             LOGGER.warn("Failed to persist bot xp", exception);
         }
     }
+    
+    public BotGoalRecord setActiveGoal(String goal, String description, String source) {
+        String now = Instant.now().toString();
+        String pauseSql = "UPDATE bot_goals SET status = 'PAUSED', updated_at = ? WHERE status = 'ACTIVE'";
+        String insertSql = "INSERT INTO bot_goals(goal, description, status, source, created_at, updated_at) VALUES (?, ?, 'ACTIVE', ?, ?, ?)";
+
+        try (Connection connection = openConnection()) {
+            try (PreparedStatement pause = connection.prepareStatement(pauseSql)) {
+                pause.setString(1, now);
+                pause.executeUpdate();
+            }
+            try (PreparedStatement insert = connection.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS)) {
+                insert.setString(1, goal);
+                insert.setString(2, description == null ? "" : description);
+                insert.setString(3, source == null ? "system" : source);
+                insert.setString(4, now);
+                insert.setString(5, now);
+                insert.executeUpdate();
+                try (ResultSet keys = insert.getGeneratedKeys()) {
+                    if (keys.next()) {
+                        long id = keys.getLong(1);
+                        return new BotGoalRecord(id, goal, description, "ACTIVE", source, Instant.now());
+                    }
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to set active bot goal", exception);
+        }
+
+        return new BotGoalRecord(-1L, goal, description, "ACTIVE", source, Instant.now());
+    }
+
+    public Optional<BotGoalRecord> loadActiveGoal() {
+        String sql = "SELECT id, goal, description, status, source, created_at FROM bot_goals WHERE status = 'ACTIVE' ORDER BY id DESC LIMIT 1";
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet resultSet = statement.executeQuery()) {
+            if (resultSet.next()) {
+                return Optional.of(new BotGoalRecord(
+                    resultSet.getLong("id"),
+                    resultSet.getString("goal"),
+                    resultSet.getString("description"),
+                    resultSet.getString("status"),
+                    resultSet.getString("source"),
+                    Instant.parse(resultSet.getString("created_at"))
+                ));
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load active goal", exception);
+        }
+        return Optional.empty();
+    }
+
+    public List<BotGoalRecord> loadGoals(int limit) {
+        int safeLimit = Math.max(1, Math.min(50, limit));
+        String sql = "SELECT id, goal, description, status, source, created_at FROM bot_goals ORDER BY id DESC LIMIT ?";
+        List<BotGoalRecord> goals = new ArrayList<>();
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, safeLimit);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    goals.add(new BotGoalRecord(
+                        resultSet.getLong("id"),
+                        resultSet.getString("goal"),
+                        resultSet.getString("description"),
+                        resultSet.getString("status"),
+                        resultSet.getString("source"),
+                        Instant.parse(resultSet.getString("created_at"))
+                    ));
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load bot goals", exception);
+        }
+        return goals;
+    }
+
+    public boolean pauseActiveGoal() {
+        String sql = "UPDATE bot_goals SET status = 'PAUSED', updated_at = ? WHERE status = 'ACTIVE'";
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, Instant.now().toString());
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to pause active goal", exception);
+        }
+        return false;
+    }
+
+    public boolean resumeLastPausedGoal() {
+        String sql = "UPDATE bot_goals SET status = 'ACTIVE', updated_at = ? WHERE id = (SELECT id FROM bot_goals WHERE status = 'PAUSED' ORDER BY id DESC LIMIT 1)";
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, Instant.now().toString());
+            return statement.executeUpdate() > 0;
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to resume paused goal", exception);
+        }
+        return false;
+    }
+
     public Optional<List<String>> loadEnabledModules() {
         String sql = "SELECT config_value FROM bot_config WHERE config_key = 'enabled_modules'";
 
@@ -191,6 +293,132 @@ public final class BotMemoryRepository {
                 flushActionBuffer(now, false);
             }
         }
+    }
+
+    
+    public void recordActionHistory(String goal, int stepIndex, String actionType, String target, String itemId, int count, boolean success, String message) {
+        String sql = "INSERT INTO bot_action_history(goal, step_index, action_type, target, item_id, count, success, message, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, goal == null ? "" : goal);
+            statement.setInt(2, stepIndex);
+            statement.setString(3, actionType == null ? "" : actionType);
+            statement.setString(4, target == null ? "" : target);
+            statement.setString(5, itemId == null ? "" : itemId);
+            statement.setInt(6, count);
+            statement.setInt(7, success ? 1 : 0);
+            statement.setString(8, message == null ? "" : message);
+            statement.setString(9, Instant.now().toString());
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to record action history", exception);
+        }
+    }
+
+    public void recordInventorySnapshot(String summary) {
+        String sql = "INSERT INTO bot_inventory_snapshots(summary, created_at) VALUES (?, ?)";
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, summary == null ? "" : summary);
+            statement.setString(2, Instant.now().toString());
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to record inventory snapshot", exception);
+        }
+    }
+
+    public void recordKnownLocation(String label, int x, int y, int z, String dimension) {
+        String sql = "INSERT INTO bot_known_locations(label, x, y, z, dimension, created_at) VALUES (?, ?, ?, ?, ?, ?)";
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, label == null ? "" : label);
+            statement.setInt(2, x);
+            statement.setInt(3, y);
+            statement.setInt(4, z);
+            statement.setString(5, dimension == null ? "" : dimension);
+            statement.setString(6, Instant.now().toString());
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to record known location", exception);
+        }
+    }
+
+    public Optional<InventorySnapshotRecord> loadLatestInventorySnapshot() {
+        String sql = "SELECT id, summary, created_at FROM bot_inventory_snapshots ORDER BY id DESC LIMIT 1";
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql);
+             ResultSet resultSet = statement.executeQuery()) {
+            if (resultSet.next()) {
+                return Optional.of(new InventorySnapshotRecord(
+                    resultSet.getLong("id"),
+                    resultSet.getString("summary"),
+                    Instant.parse(resultSet.getString("created_at"))
+                ));
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load latest inventory snapshot", exception);
+        }
+        return Optional.empty();
+    }
+
+    public List<KnownLocationRecord> loadKnownLocations(int limit) {
+        int safeLimit = Math.max(1, Math.min(20, limit));
+        String sql = "SELECT id, label, x, y, z, dimension, created_at FROM bot_known_locations ORDER BY id DESC LIMIT ?";
+        List<KnownLocationRecord> locations = new ArrayList<>();
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, safeLimit);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    locations.add(new KnownLocationRecord(
+                        resultSet.getLong("id"),
+                        resultSet.getString("label"),
+                        resultSet.getInt("x"),
+                        resultSet.getInt("y"),
+                        resultSet.getInt("z"),
+                        resultSet.getString("dimension"),
+                        Instant.parse(resultSet.getString("created_at"))
+                    ));
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load known locations", exception);
+        }
+        return locations;
+    }
+
+    public List<ActionHistoryRecord> loadRecentActionHistory(int limit) {
+        int safeLimit = Math.max(1, Math.min(25, limit));
+        String sql = """
+            SELECT id, goal, step_index, action_type, target, item_id, count, success, message, created_at
+            FROM bot_action_history
+            ORDER BY id DESC
+            LIMIT ?
+            """;
+        List<ActionHistoryRecord> actions = new ArrayList<>();
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setInt(1, safeLimit);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    actions.add(new ActionHistoryRecord(
+                        resultSet.getLong("id"),
+                        resultSet.getString("goal"),
+                        resultSet.getInt("step_index"),
+                        resultSet.getString("action_type"),
+                        resultSet.getString("target"),
+                        resultSet.getString("item_id"),
+                        resultSet.getInt("count"),
+                        resultSet.getInt("success") == 1,
+                        resultSet.getString("message"),
+                        Instant.parse(resultSet.getString("created_at"))
+                    ));
+                }
+            }
+        } catch (SQLException exception) {
+            LOGGER.warn("Failed to load recent action history", exception);
+        }
+        return actions;
     }
 
     public void flushActions() {
@@ -960,6 +1188,54 @@ public final class BotMemoryRepository {
                     "result_message TEXT" +
                     ")"
             );
+
+
+            statement.execute(
+                "CREATE TABLE IF NOT EXISTS bot_goals (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "goal TEXT NOT NULL," +
+                    "description TEXT," +
+                    "status TEXT NOT NULL," +
+                    "source TEXT NOT NULL," +
+                    "created_at TEXT NOT NULL," +
+                    "updated_at TEXT NOT NULL" +
+                    ")"
+            );
+
+            statement.execute(
+                "CREATE TABLE IF NOT EXISTS bot_action_history (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "goal TEXT NOT NULL," +
+                    "step_index INTEGER NOT NULL," +
+                    "action_type TEXT NOT NULL," +
+                    "target TEXT," +
+                    "item_id TEXT," +
+                    "count INTEGER NOT NULL," +
+                    "success INTEGER NOT NULL," +
+                    "message TEXT," +
+                    "created_at TEXT NOT NULL" +
+                    ")"
+            );
+
+            statement.execute(
+                "CREATE TABLE IF NOT EXISTS bot_inventory_snapshots (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "summary TEXT NOT NULL," +
+                    "created_at TEXT NOT NULL" +
+                    ")"
+            );
+
+            statement.execute(
+                "CREATE TABLE IF NOT EXISTS bot_known_locations (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT," +
+                    "label TEXT NOT NULL," +
+                    "x INTEGER NOT NULL," +
+                    "y INTEGER NOT NULL," +
+                    "z INTEGER NOT NULL," +
+                    "dimension TEXT NOT NULL," +
+                    "created_at TEXT NOT NULL" +
+                    ")"
+            );
         }
     }
 
@@ -1080,6 +1356,48 @@ public final class BotMemoryRepository {
             size = 2000;
         }
         return size;
+    }
+
+    public record BotGoalRecord(
+        long id,
+        String goal,
+        String description,
+        String status,
+        String source,
+        Instant createdAt
+    ) {
+    }
+
+    public record KnownLocationRecord(
+        long id,
+        String label,
+        int x,
+        int y,
+        int z,
+        String dimension,
+        Instant createdAt
+    ) {
+    }
+
+    public record InventorySnapshotRecord(
+        long id,
+        String summary,
+        Instant createdAt
+    ) {
+    }
+
+    public record ActionHistoryRecord(
+        long id,
+        String goal,
+        int stepIndex,
+        String actionType,
+        String target,
+        String itemId,
+        int count,
+        boolean success,
+        String message,
+        Instant createdAt
+    ) {
     }
 
     public record ActionRecord(String action, String result, String createdAt) {

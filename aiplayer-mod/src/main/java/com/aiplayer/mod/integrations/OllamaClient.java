@@ -33,16 +33,26 @@ public final class OllamaClient {
     }
 
     public Optional<String> ask(String question, String objective) {
+        String system = "Tu es un bot Minecraft utile et concis. Reponds en une phrase actionnable.";
+        String user = "Objectif courant: " + objective + " | Question: " + question;
+        return askWithPrompts(system, user, Duration.ofSeconds(8));
+    }
+
+    public Optional<String> askStructured(String systemPrompt, String userPrompt) {
+        return askWithPrompts(systemPrompt, userPrompt, Duration.ofSeconds(12));
+    }
+
+    private Optional<String> askWithPrompts(String systemPrompt, String userPrompt, Duration timeout) {
         if (shouldBackoff()) {
             LOGGER.warn("Ollama backoff active, skip request");
             return Optional.empty();
         }
 
         try {
-            String payload = buildPayload(question, objective);
+            String payload = buildPayload(systemPrompt, userPrompt);
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(this.baseUrl + "/api/chat"))
-                .timeout(Duration.ofSeconds(8))
+                .timeout(timeout)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                 .build();
@@ -70,9 +80,9 @@ public final class OllamaClient {
         }
     }
 
-    private String buildPayload(String question, String objective) {
-        String system = escapeJson("Tu es un bot Minecraft utile et concis. Reponds en une phrase actionnable.");
-        String user = escapeJson("Objectif courant: " + objective + " | Question: " + question);
+    private String buildPayload(String systemPrompt, String userPrompt) {
+        String system = escapeJson(systemPrompt);
+        String user = escapeJson(userPrompt);
 
         return "{" +
             "\\\"model\\\":\\\"" + escapeJson(this.model) + "\\\"," +
@@ -96,16 +106,16 @@ public final class OllamaClient {
             .replace("\\\\r", "\r")
             .replace("\\\\t", "\t")
             .replace("\\\\\"", "\"")
-            .replace("\\\\\\\\", "\\\\");
+            .replace("\\\\\\\\", "\\");
     }
 
     private String escapeJson(String value) {
         return value
-            .replace("\\\\", "\\\\\\\\")
-            .replace("\"", "\\\\\"")
-            .replace("\n", "\\\\n")
-            .replace("\r", "\\\\r")
-            .replace("\t", "\\\\t");
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t");
     }
 
     private boolean shouldBackoff() {
