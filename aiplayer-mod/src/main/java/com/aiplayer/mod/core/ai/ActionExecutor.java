@@ -237,7 +237,13 @@ public final class ActionExecutor {
         FakePlayer player = fakePlayerController.getOrCreate(level, botName);
         Vec3 hitPos = Vec3.atCenterOf(step.target());
         BlockHitResult hit = new BlockHitResult(hitPos, Direction.UP, step.target(), false);
-        InteractionResult result = state.getBlock().use(state, level, step.target(), player, InteractionHand.MAIN_HAND, hit);
+        InteractionResult result = player.gameMode.useItemOn(
+            player,
+            level,
+            player.getMainHandItem(),
+            InteractionHand.MAIN_HAND,
+            hit
+        );
         if (result.consumesAction()) {
             return ActionResult.success("interacted");
         }
