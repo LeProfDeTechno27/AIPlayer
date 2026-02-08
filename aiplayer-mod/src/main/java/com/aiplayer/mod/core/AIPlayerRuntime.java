@@ -646,7 +646,7 @@ public final class AIPlayerRuntime {
             return List.of();
         }
         AABB box = new AABB(pos).inflate(radius);
-        List<Entity> entities = level.getEntities(null, box, entity -> !(entity instanceof AIBotEntity) && !(entity instanceof FakePlayer));
+        List<Entity> entities = level.getEntities((Entity) null, box, entity -> !(entity instanceof AIBotEntity) && !(entity instanceof FakePlayer));
         List<String> results = new java.util.ArrayList<>();
         for (Entity entity : entities) {
             ResourceLocation key = BuiltInRegistries.ENTITY_TYPE.getKey(entity.getType());
@@ -746,7 +746,10 @@ public final class AIPlayerRuntime {
             summary.add("off=" + BuiltInRegistries.ITEM.getKey(off.getItem()));
         }
         for (net.minecraft.world.entity.EquipmentSlot slot : net.minecraft.world.entity.EquipmentSlot.values()) {
-            if (slot.getType() != net.minecraft.world.entity.EquipmentSlot.Type.ARMOR) {
+            if (slot != net.minecraft.world.entity.EquipmentSlot.HEAD
+                && slot != net.minecraft.world.entity.EquipmentSlot.CHEST
+                && slot != net.minecraft.world.entity.EquipmentSlot.LEGS
+                && slot != net.minecraft.world.entity.EquipmentSlot.FEET) {
                 continue;
             }
             ItemStack armor = player.getItemBySlot(slot);
