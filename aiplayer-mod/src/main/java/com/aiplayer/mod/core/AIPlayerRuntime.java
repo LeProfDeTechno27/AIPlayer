@@ -406,7 +406,16 @@ public final class AIPlayerRuntime {
     private BotGoal resolveGoal(BotPerception perception) {
         Optional<BotGoal> manual = memoryService.loadActiveGoal();
         if (manual.isPresent()) {
-            return manual.get();
+            BotGoal selected = manual.get();
+            String name = selected.name() == null ? "" : selected.name().trim().toLowerCase(Locale.ROOT);
+            if (!"explore".equals(name) && !"auto".equals(name)) {
+                return selected;
+            }
+            // "explore" / "auto" are treated as autonomous mode selectors.
+            if (perception != null) {
+                return resolveHeuristicGoal(perception);
+            }
+            return selected;
         }
         if (currentObjective != null && !"none".equalsIgnoreCase(currentObjective)) {
             return new BotGoal("task", currentObjective, "task", "ACTIVE", Instant.now());
