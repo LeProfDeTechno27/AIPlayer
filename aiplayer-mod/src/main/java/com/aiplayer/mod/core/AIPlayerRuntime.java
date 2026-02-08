@@ -443,6 +443,27 @@ public final class AIPlayerRuntime {
         return false;
     }
 
+    private boolean hasAnyLogs(List<String> inventory) {
+        if (inventory == null) {
+            return false;
+        }
+        List<String> logIds = List.of(
+            "minecraft:oak_log",
+            "minecraft:spruce_log",
+            "minecraft:birch_log",
+            "minecraft:jungle_log",
+            "minecraft:acacia_log",
+            "minecraft:dark_oak_log",
+            "minecraft:mangrove_log"
+        );
+        for (String logId : logIds) {
+            if (inventoryContains(inventory, logId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private BotActionPlan sanitizePlan(BotActionPlan plan) {
         if (plan == null) {
             return null;
@@ -547,6 +568,21 @@ public final class AIPlayerRuntime {
 
         switch (goalName) {
             case "starter_base" -> {
+                if (!hasAnyLogs(inventory)) {
+                    addMoveMineStep(
+                        steps,
+                        perception,
+                        List.of(
+                            "minecraft:oak_log",
+                            "minecraft:spruce_log",
+                            "minecraft:birch_log",
+                            "minecraft:jungle_log",
+                            "minecraft:acacia_log",
+                            "minecraft:dark_oak_log",
+                            "minecraft:mangrove_log"
+                        )
+                    );
+                }
                 addCraftIfMissing(steps, inventory, "minecraft:crafting_table");
                 addCraftIfMissing(steps, inventory, "minecraft:furnace");
                 addCraftIfMissing(steps, inventory, "minecraft:chest");

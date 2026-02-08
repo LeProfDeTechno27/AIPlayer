@@ -133,7 +133,6 @@ public final class BotPlanner {
     }
 
     private BotActionPlan fallbackPlan(BotGoal goal, String reason) {
-        BotActionStep step = new BotActionStep(BotActionType.WAIT, null, "", 1, 40);
-        return new BotActionPlan(goal.name(), "fallback:" + reason, List.of(step));
+        return new BotActionPlan(goal.name(), "fallback:" + reason, List.of());
     }
 }
