@@ -13,6 +13,7 @@ import com.aiplayer.mod.persistence.BotMemoryRepository;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
+import net.neoforged.neoforge.event.TickEvent;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -28,10 +29,12 @@ import java.util.Locale;
 @Mod(ModMetadata.MOD_ID)
 public class AIPlayerMod {
     private static final Logger LOGGER = LoggerFactory.getLogger(AIPlayerMod.class);
+    private static final int AUTO_TICK_INTERVAL = 20;
 
     private final ModuleManager moduleManager;
     private final BotMemoryRepository memoryRepository;
     private final AIPlayerRuntime runtime;
+    private int serverTickCounter;
 
     public AIPlayerMod(IEventBus modBus) {
         this.moduleManager = new ModuleManager();
@@ -60,6 +63,25 @@ public class AIPlayerMod {
     public void onRegisterCommands(RegisterCommandsEvent event) {
         AIPlayerCommands.register(event.getDispatcher(), this.runtime);
         LOGGER.info("/aiplayer command tree registered");
+    }
+
+    @SubscribeEvent
+    public void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        if (event.getServer() == null) {
+            return;
+        }
+        serverTickCounter++;
+        if (serverTickCounter < AUTO_TICK_INTERVAL) {
+            return;
+        }
+        serverTickCounter = 0;
+        var level = event.getServer().overworld();
+        if (level != null) {
+            this.runtime.tickOnce(level);
+        }
     }
 
     @SubscribeEvent
@@ -96,4 +118,8 @@ public class AIPlayerMod {
         LOGGER.info("Enabled modules override applied: {}", this.moduleManager.getEnabledModuleNames());
     }
 }
+
+
+
+
 

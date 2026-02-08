@@ -461,6 +461,12 @@ public final class AIPlayerCommands {
             .then(Commands.literal("status")
                 .executes(context -> showStatus(context.getSource(), runtime)))
             .then(Commands.literal("spawn")
+                .then(Commands.argument("name", StringArgumentType.word())
+                    .executes(context -> spawnMarkerNamed(
+                        context.getSource(),
+                        runtime,
+                        StringArgumentType.getString(context, "name")
+                    )))
                 .executes(context -> spawnMarker(context.getSource(), runtime)))
             .then(Commands.literal("despawn")
                 .executes(context -> despawnMarker(context.getSource(), runtime)))
@@ -1507,6 +1513,12 @@ public final class AIPlayerCommands {
         return 1;
     }
 }
+
+
+
+
+
+
 
 
 
