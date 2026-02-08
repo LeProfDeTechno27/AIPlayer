@@ -91,15 +91,38 @@ public final class BotPlanner {
             int x = getInt(target, "x", 0);
             int y = getInt(target, "y", 0);
             int z = getInt(target, "z", 0);
-            return new BotActionStep(type, new net.minecraft.core.BlockPos(x, y, z), itemId, count, timeout);
+            net.minecraft.core.BlockPos pos = new net.minecraft.core.BlockPos(x, y, z);
+            if (type == BotActionType.WAIT) {
+                // LLM often uses WAIT with coordinates to mean "go there".
+                type = BotActionType.MOVE;
+            }
+            return new BotActionStep(type, pos, itemId, count, timeout);
         }
 
         return new BotActionStep(type, null, itemId, count, timeout);
     }
 
     private BotActionType parseType(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return BotActionType.WAIT;
+        }
+        String normalized = raw.trim().toUpperCase();
+        switch (normalized) {
+            case "GO_TO", "GOTO", "NAVIGATE", "TRAVEL", "WALK", "MOVE_TO" -> {
+                return BotActionType.MOVE;
+            }
+            case "DIG", "BREAK", "CHOP", "HARVEST" -> {
+                return BotActionType.MINE;
+            }
+            case "USE" -> {
+                return BotActionType.INTERACT;
+            }
+            default -> {
+                // fall through to enum parsing
+            }
+        }
         try {
-            return BotActionType.valueOf(raw.trim().toUpperCase());
+            return BotActionType.valueOf(normalized);
         } catch (Exception ignored) {
             return BotActionType.WAIT;
         }

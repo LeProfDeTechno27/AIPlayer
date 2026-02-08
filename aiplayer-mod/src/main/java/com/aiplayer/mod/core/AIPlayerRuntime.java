@@ -486,13 +486,25 @@ public final class AIPlayerRuntime {
             return plan;
         }
         List<BotActionStep> steps = new java.util.ArrayList<>();
+        boolean hasAction = false;
         for (BotActionStep step : plan.steps()) {
             int timeout = step.timeoutTicks();
             if (timeout <= 0 || timeout > actionTimeoutTicks) {
                 timeout = actionTimeoutTicks;
             }
             int count = step.count() <= 0 ? 1 : step.count();
-            steps.add(new BotActionStep(step.type(), step.target(), step.itemId(), count, timeout));
+            BotActionType type = step.type();
+            if (type == BotActionType.WAIT && step.target() != null) {
+                // Defensive normalization: WAIT with a target is usually an intended MOVE.
+                type = BotActionType.MOVE;
+            }
+            if (type != BotActionType.WAIT) {
+                hasAction = true;
+            }
+            steps.add(new BotActionStep(type, step.target(), step.itemId(), count, timeout));
+        }
+        if (!hasAction) {
+            return null;
         }
         return new BotActionPlan(plan.goal(), plan.rationale(), steps);
     }
