@@ -652,9 +652,10 @@ public final class AIPlayerCommands {
         String goalText = (goal == null)
             ? "none"
             : goal.name() + " (" + goal.source() + ")" + (goal.description().isBlank() ? "" : " " + goal.description());
+        boolean botTracked = runtime.isBotAlive(source.getLevel());
 
         source.sendSuccess(
-            () -> Component.literal("paused=" + runtime.isPaused() + " debug=" + runtime.isDebug() + " goal=" + goalText),
+            () -> Component.literal("paused=" + runtime.isPaused() + " debug=" + runtime.isDebug() + " botTracked=" + botTracked + " goal=" + goalText),
             false
         );
         source.sendSuccess(
@@ -743,8 +744,8 @@ public final class AIPlayerCommands {
     }
 
     private static int tickOnce(CommandSourceStack source, AIPlayerRuntime runtime) {
-        runtime.tickOnce(source.getLevel());
-        source.sendSuccess(() -> Component.literal("AIPlayer tick executed"), false);
+        runtime.tickNow(source.getLevel());
+        source.sendSuccess(() -> Component.literal("AIPlayer tick forced"), false);
         return 1;
     }
 

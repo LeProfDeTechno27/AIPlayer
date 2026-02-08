@@ -93,6 +93,8 @@ public final class AIPlayerRuntime {
     private int decisionSkips;
     private boolean paused;
     private boolean debug = resolveDebug();
+    private Instant lastBotLookupAt;
+    private final Duration botLookupCooldown = Duration.ofSeconds(5);
     private final int decisionIntervalTicks = resolveDecisionIntervalTicks();
     private final int actionTimeoutTicks = resolveActionTimeoutTicks();
     private final int maxPlanSteps = resolveMaxPlanSteps();
@@ -173,6 +175,14 @@ public final class AIPlayerRuntime {
     }
 
     public void tickOnce(ServerLevel level) {
+        tickInternal(level, false);
+    }
+
+    public void tickNow(ServerLevel level) {
+        tickInternal(level, true);
+    }
+
+    private void tickInternal(ServerLevel level, boolean forceDecision) {
         Instant now = Instant.now();
         this.moduleManager.tickEnabled();
         processBotTaskLifecycle();
@@ -203,13 +213,17 @@ public final class AIPlayerRuntime {
             return;
         }
 
-        decisionTickCounter++;
-        if (decisionTickCounter < decisionIntervalTicks) {
-            recordDecisionStats(now);
-            recordTickLog(now);
-            return;
+        if (!forceDecision) {
+            decisionTickCounter++;
+            if (decisionTickCounter < decisionIntervalTicks) {
+                recordDecisionStats(now);
+                recordTickLog(now);
+                return;
+            }
+            decisionTickCounter = 0;
+        } else {
+            decisionTickCounter = 0;
         }
-        decisionTickCounter = 0;
 
         if (!actionExecutor.isIdle()) {
             decisionSkips++;
@@ -1812,16 +1826,44 @@ public final class AIPlayerRuntime {
 
 
     private AIBotEntity getTrackedBot(ServerLevel level) {
-        if (this.botEntityId == null) {
+        if (level == null) {
             return null;
         }
 
-        Entity entity = level.getEntity(this.botEntityId);
-        if (entity instanceof AIBotEntity bot) {
-            return bot;
+        if (this.botEntityId != null) {
+            Entity entity = level.getEntity(this.botEntityId);
+            if (entity instanceof AIBotEntity bot) {
+                return bot;
+            }
         }
 
-        return null;
+        Instant now = Instant.now();
+        if (lastBotLookupAt != null && Duration.between(lastBotLookupAt, now).compareTo(botLookupCooldown) < 0) {
+            return null;
+        }
+        lastBotLookupAt = now;
+
+        AABB fullWorld = new AABB(
+            -30_000_000.0,
+            level.getMinBuildHeight(),
+            -30_000_000.0,
+            30_000_000.0,
+            level.getMaxBuildHeight(),
+            30_000_000.0
+        );
+        List<AIBotEntity> bots = level.getEntitiesOfClass(AIBotEntity.class, fullWorld);
+        if (bots.isEmpty()) {
+            this.botEntityId = null;
+            return null;
+        }
+
+        AIBotEntity recovered = bots.get(0);
+        this.botEntityId = recovered.getUUID();
+        if (this.botName == null || this.botName.isBlank()) {
+            this.botName = recovered.getName().getString();
+        }
+        this.memoryRepository.recordAction("bot-track-recovered", this.botEntityId.toString());
+        return recovered;
     }
 
     private Entity getTrackedMarker(ServerLevel level) {
