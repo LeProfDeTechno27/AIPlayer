@@ -771,6 +771,7 @@ public final class AIPlayerRuntime {
         bot.moveTo(position.x, position.y, position.z, 0.0f, 0.0f);
         bot.setCustomName(Component.literal(botName));
         bot.setCustomNameVisible(true);
+        bot.setPersistenceRequired();
         boolean added = level.addFreshEntity(bot);
         if (added) {
             this.botEntityId = bot.getUUID();
@@ -781,6 +782,18 @@ public final class AIPlayerRuntime {
 
     public boolean isBotAlive(ServerLevel level) {
         return getTrackedBot(level) != null;
+    }
+
+    public boolean despawnBot(ServerLevel level) {
+        AIBotEntity bot = getTrackedBot(level);
+        if (bot == null) {
+            return false;
+        }
+
+        bot.discard();
+        this.memoryRepository.recordAction("despawn-bot", bot.getUUID().toString());
+        this.botEntityId = null;
+        return true;
     }
 
     public boolean despawnMarker(ServerLevel level) {
@@ -1120,6 +1133,8 @@ public final class AIPlayerRuntime {
         return null;
     }
 }
+
+
 
 
 

@@ -607,35 +607,35 @@ public final class AIPlayerCommands {
     }
 
     private static int spawnMarker(CommandSourceStack source, AIPlayerRuntime runtime) {
-        boolean spawned = runtime.spawnMarker(source.getLevel(), source.getPosition());
+        boolean spawned = runtime.spawnBot(source.getLevel(), source.getPosition(), "AIPlayer Bot");
         if (!spawned) {
-            source.sendFailure(Component.literal("Unable to spawn bot marker"));
+            source.sendFailure(Component.literal("Unable to spawn bot"));
             return 0;
         }
 
-        source.sendSuccess(() -> Component.literal("Bot marker spawned"), false);
+        source.sendSuccess(() -> Component.literal("Bot spawned"), false);
         return 1;
     }
 
     private static int spawnMarkerNamed(CommandSourceStack source, AIPlayerRuntime runtime, String markerName) {
-        boolean spawned = runtime.spawnMarker(source.getLevel(), source.getPosition(), markerName);
+        boolean spawned = runtime.spawnBot(source.getLevel(), source.getPosition(), markerName);
         if (!spawned) {
-            source.sendFailure(Component.literal("Unable to spawn bot marker"));
+            source.sendFailure(Component.literal("Unable to spawn bot"));
             return 0;
         }
 
-        source.sendSuccess(() -> Component.literal("Bot marker spawned: " + markerName), false);
+        source.sendSuccess(() -> Component.literal("Bot spawned: " + markerName), false);
         return 1;
     }
 
     private static int despawnMarker(CommandSourceStack source, AIPlayerRuntime runtime) {
-        boolean removed = runtime.despawnMarker(source.getLevel());
+        boolean removed = runtime.despawnBot(source.getLevel());
         if (!removed) {
-            source.sendFailure(Component.literal("No tracked bot marker to despawn"));
+            source.sendFailure(Component.literal("No tracked bot to despawn"));
             return 0;
         }
 
-        source.sendSuccess(() -> Component.literal("Bot marker removed"), false);
+        source.sendSuccess(() -> Component.literal("Bot despawned"), false);
         return 1;
     }
 
@@ -1507,6 +1507,9 @@ public final class AIPlayerCommands {
         return 1;
     }
 }
+
+
+
 
 
 
