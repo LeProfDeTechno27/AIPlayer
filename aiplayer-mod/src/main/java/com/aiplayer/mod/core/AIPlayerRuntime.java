@@ -268,7 +268,11 @@ public final class AIPlayerRuntime {
         BotActionPlan plan = botPlanner.plan(lastPerception, goal, memorySummary, maxPlanSteps);
         BotActionPlan sanitized = sanitizePlan(plan);
         if (sanitized == null || sanitized.isEmpty()) {
-            BotActionPlan fallback = buildHeuristicPlan(goal, lastPerception);
+            String fallbackReason = "planner-empty";
+            if (plan != null && plan.rationale() != null && !plan.rationale().isBlank()) {
+                fallbackReason = plan.rationale();
+            }
+            BotActionPlan fallback = buildHeuristicPlan(goal, lastPerception, fallbackReason);
             if (fallback == null || fallback.isEmpty()) {
                 decisionSkips++;
                 recordDecisionStats(now);
@@ -282,7 +286,10 @@ public final class AIPlayerRuntime {
         actionExecutor.setPlan(sanitized);
         decisionsMade++;
         lastDecisionAt = now;
-        this.memoryRepository.recordAction("bot-plan", "goal=" + sanitized.goal() + " steps=" + sanitized.steps().size());
+        this.memoryRepository.recordAction(
+            "bot-plan",
+            "goal=" + sanitized.goal() + " steps=" + sanitized.steps().size() + " rationale=" + sanitized.rationale()
+        );
 
         recordDecisionStats(now);
         recordTickLog(now);
@@ -674,7 +681,7 @@ public final class AIPlayerRuntime {
         return builder.toString();
     }
 
-    private BotActionPlan buildHeuristicPlan(BotGoal goal, BotPerception perception) {
+    private BotActionPlan buildHeuristicPlan(BotGoal goal, BotPerception perception, String reason) {
         if (goal == null || perception == null) {
             return null;
         }
@@ -779,7 +786,10 @@ public final class AIPlayerRuntime {
         if (steps.isEmpty()) {
             steps.add(new BotActionStep(BotActionType.WAIT, null, "", 1, Math.min(80, actionTimeoutTicks)));
         }
-        return new BotActionPlan(goal.name(), "heuristic", steps);
+        String rationale = (reason == null || reason.isBlank())
+            ? "heuristic"
+            : "heuristic(" + reason + ")";
+        return new BotActionPlan(goal.name(), rationale, steps);
     }
 
     private void addCraftIfMissing(List<BotActionStep> steps, List<String> inventory, String itemId) {
@@ -2200,7 +2210,7 @@ public final class AIPlayerRuntime {
         String prop = System.getProperty("aiplayer.ollama.url");
         String env = System.getenv("AIPLAYER_OLLAMA_URL");
         String raw = (prop != null && !prop.isBlank()) ? prop : env;
-        return (raw == null || raw.isBlank()) ? "http://localhost:11434" : raw.trim();
+        return (raw == null || raw.isBlank()) ? "http://ollama:11434" : raw.trim();
     }
 
     private String resolveOllamaModel() {

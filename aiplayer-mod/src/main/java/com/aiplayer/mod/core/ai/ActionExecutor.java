@@ -137,7 +137,8 @@ public final class ActionExecutor {
         Vec3 target = resolveApproachTarget(level, step.target());
         double distance = bot.position().distanceToSqr(target);
         trackMovementProgress(distance);
-        if (distance <= 2.25) {
+        // Require near-center arrival so MOVE steps do not complete instantly when the bot is merely adjacent.
+        if (distance <= 0.81) {
             return ActionResult.success("arrived");
         }
 

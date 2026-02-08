@@ -1,5 +1,7 @@
 package com.aiplayer.mod.integrations;
 
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,6 +12,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -48,10 +53,28 @@ public final class OllamaClient {
             return Optional.empty();
         }
 
+        List<String> endpoints = endpointCandidates();
+        String payload = buildPayload(systemPrompt, userPrompt);
+        String lastError = "unknown";
+
+        for (String endpoint : endpoints) {
+            Optional<String> response = requestEndpoint(endpoint, payload, timeout);
+            if (response.isPresent()) {
+                resetFailures();
+                return response;
+            }
+            lastError = "endpoint=" + endpoint;
+        }
+
+        LOGGER.warn("All Ollama endpoints failed ({})", lastError);
+        registerFailure();
+        return Optional.empty();
+    }
+
+    private Optional<String> requestEndpoint(String endpoint, String payload, Duration timeout) {
         try {
-            String payload = buildPayload(systemPrompt, userPrompt);
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(this.baseUrl + "/api/chat"))
+                .uri(URI.create(endpoint + "/api/chat"))
                 .timeout(timeout)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
@@ -59,23 +82,19 @@ public final class OllamaClient {
 
             HttpResponse<String> response = this.httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                LOGGER.warn("Ollama returned non-success status={} body={}", response.statusCode(), response.body());
-                registerFailure();
+                LOGGER.warn("Ollama non-success endpoint={} status={} body={}", endpoint, response.statusCode(), response.body());
                 return Optional.empty();
             }
 
             String content = extractContent(response.body());
             if (content == null || content.isBlank()) {
-                LOGGER.warn("Ollama response did not contain message content");
-                registerFailure();
+                LOGGER.warn("Ollama endpoint={} did not contain message content", endpoint);
                 return Optional.empty();
             }
 
-            resetFailures();
             return Optional.of(content.trim());
         } catch (Exception exception) {
-            LOGGER.warn("Failed to query Ollama", exception);
-            registerFailure();
+            LOGGER.warn("Failed to query Ollama endpoint={}", endpoint, exception);
             return Optional.empty();
         }
     }
@@ -85,16 +104,31 @@ public final class OllamaClient {
         String user = escapeJson(userPrompt);
 
         return "{" +
-            "\\\"model\\\":\\\"" + escapeJson(this.model) + "\\\"," +
-            "\\\"stream\\\":false," +
-            "\\\"messages\\\":[" +
-            "{\\\"role\\\":\\\"system\\\",\\\"content\\\":\\\"" + system + "\\\"}," +
-            "{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"" + user + "\\\"}" +
+            "\"model\":\"" + escapeJson(this.model) + "\"," +
+            "\"stream\":false," +
+            "\"messages\":[" +
+            "{\"role\":\"system\",\"content\":\"" + system + "\"}," +
+            "{\"role\":\"user\",\"content\":\"" + user + "\"}" +
             "]" +
             "}";
     }
 
     private String extractContent(String body) {
+        try {
+            JsonObject root = JsonParser.parseString(body).getAsJsonObject();
+            if (root.has("message") && root.get("message").isJsonObject()) {
+                JsonObject message = root.getAsJsonObject("message");
+                if (message.has("content") && message.get("content").isJsonPrimitive()) {
+                    return message.get("content").getAsString();
+                }
+            }
+            if (root.has("response") && root.get("response").isJsonPrimitive()) {
+                return root.get("response").getAsString();
+            }
+        } catch (Exception ignored) {
+            // Keep regex fallback for non-standard payloads.
+        }
+
         Matcher matcher = CONTENT_PATTERN.matcher(body);
         if (!matcher.find()) {
             return null;
@@ -107,6 +141,26 @@ public final class OllamaClient {
             .replace("\\\\t", "\t")
             .replace("\\\\\"", "\"")
             .replace("\\\\\\\\", "\\");
+    }
+
+    private List<String> endpointCandidates() {
+        LinkedHashSet<String> ordered = new LinkedHashSet<>();
+        ordered.add(normalizeBaseUrl(this.baseUrl));
+        ordered.add("http://ollama:11434");
+        ordered.add("http://aiplayer-ollama:11434");
+        ordered.add("http://localhost:11434");
+        return new ArrayList<>(ordered);
+    }
+
+    private String normalizeBaseUrl(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "http://ollama:11434";
+        }
+        String trimmed = raw.trim();
+        while (trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return trimmed;
     }
 
     private String escapeJson(String value) {
