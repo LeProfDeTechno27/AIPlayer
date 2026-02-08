@@ -98,6 +98,18 @@ public final class AIPlayerRuntime {
     private final int decisionIntervalTicks = resolveDecisionIntervalTicks();
     private final int actionTimeoutTicks = resolveActionTimeoutTicks();
     private final int maxPlanSteps = resolveMaxPlanSteps();
+    private static final Map<String, Integer> FOOD_POINTS = Map.ofEntries(
+        Map.entry("minecraft:bread", 5),
+        Map.entry("minecraft:cooked_beef", 8),
+        Map.entry("minecraft:cooked_porkchop", 8),
+        Map.entry("minecraft:cooked_mutton", 6),
+        Map.entry("minecraft:cooked_chicken", 6),
+        Map.entry("minecraft:cooked_cod", 5),
+        Map.entry("minecraft:cooked_salmon", 6),
+        Map.entry("minecraft:apple", 4),
+        Map.entry("minecraft:carrot", 3),
+        Map.entry("minecraft:baked_potato", 5)
+    );
 
     public AIPlayerRuntime(ModuleManager moduleManager, BotMemoryRepository memoryRepository) {
         this.moduleManager = moduleManager;
@@ -347,7 +359,7 @@ public final class AIPlayerRuntime {
         FakePlayer player = botFakePlayer;
         float health = player != null ? player.getHealth() : bot.getHealth();
         float maxHealth = player != null ? player.getMaxHealth() : bot.getMaxHealth();
-        int hunger = player != null ? player.getFoodData().getFoodLevel() : botHunger;
+        int hunger = botHunger;
         int xp = botXp;
         BlockPos pos = bot.blockPosition();
         String dimension = level.dimension().location().toString();
@@ -404,6 +416,9 @@ public final class AIPlayerRuntime {
 
     private BotGoal resolveHeuristicGoal(BotPerception perception) {
         List<String> inventory = perception.inventorySummary();
+        if (isNightTime(perception.timeOfDay()) && !hasBed(inventory)) {
+            return new BotGoal("starter_base", "Fabriquer un lit pour la nuit", "heuristic", "ACTIVE", Instant.now());
+        }
         if (perception.hunger() <= 6) {
             return new BotGoal("find_food", "Trouver et manger de la nourriture", "heuristic", "ACTIVE", Instant.now());
         }
@@ -616,6 +631,9 @@ public final class AIPlayerRuntime {
                 if (!hasBed(inventory)) {
                     steps.add(new BotActionStep(BotActionType.CRAFT, null, "minecraft:white_bed", 1, actionTimeoutTicks));
                 }
+                addPlaceIfPossible(steps, perception, inventory, "minecraft:crafting_table");
+                addPlaceIfPossible(steps, perception, inventory, "minecraft:furnace");
+                addPlaceIfPossible(steps, perception, inventory, "minecraft:chest");
             }
             case "starter_tools" -> addCraftIfMissing(steps, inventory, "minecraft:wooden_pickaxe");
             case "upgrade_tools" -> {
@@ -627,7 +645,13 @@ public final class AIPlayerRuntime {
                     addCraftIfMissing(steps, inventory, "minecraft:diamond_pickaxe");
                 }
             }
-            case "find_food" -> addCraftIfMissing(steps, inventory, "minecraft:bread");
+            case "find_food" -> {
+                if (!hasAnyFood(inventory)) {
+                    addCraftIfMissing(steps, inventory, "minecraft:bread");
+                } else {
+                    addExplorationStep(steps, perception);
+                }
+            }
             case "mine_diamond" -> {
                 boolean added = addMoveMineStep(steps, perception, List.of("minecraft:diamond_ore", "minecraft:deepslate_diamond_ore"));
                 if (!added) {
@@ -671,6 +695,25 @@ public final class AIPlayerRuntime {
         steps.add(new BotActionStep(BotActionType.CRAFT, null, itemId, 1, actionTimeoutTicks));
     }
 
+    private void addPlaceIfPossible(
+        List<BotActionStep> steps,
+        BotPerception perception,
+        List<String> inventory,
+        String blockId
+    ) {
+        if (!inventoryContains(inventory, blockId)) {
+            return;
+        }
+        if (isBlockNearby(perception, blockId)) {
+            return;
+        }
+        BlockPos target = pickNearbyPlacement(perception);
+        if (target == null) {
+            return;
+        }
+        steps.add(new BotActionStep(BotActionType.PLACE, target, blockId, 1, actionTimeoutTicks));
+    }
+
     private boolean addMoveMineStep(List<BotActionStep> steps, BotPerception perception, List<String> preferredIds) {
         BlockPos target = findTargetBlock(perception, preferredIds);
         if (target == null) {
@@ -694,6 +737,56 @@ public final class AIPlayerRuntime {
         }
         BlockPos target = origin.offset(dx, 0, dz);
         steps.add(new BotActionStep(BotActionType.MOVE, target, "", 1, actionTimeoutTicks));
+    }
+
+    private BlockPos pickNearbyPlacement(BotPerception perception) {
+        if (perception == null || perception.position() == null) {
+            return null;
+        }
+        BlockPos origin = perception.position();
+        BlockPos[] candidates = new BlockPos[] {
+            origin.offset(1, 0, 0),
+            origin.offset(-1, 0, 0),
+            origin.offset(0, 0, 1),
+            origin.offset(0, 0, -1),
+            origin.offset(2, 0, 0),
+            origin.offset(0, 0, 2)
+        };
+        int idx = (int) Math.floorMod(perception.timeOfDay() + origin.getX() + origin.getZ(), candidates.length);
+        return candidates[idx];
+    }
+
+    private boolean isBlockNearby(BotPerception perception, String blockId) {
+        if (perception == null || perception.nearbyBlocks() == null || blockId == null) {
+            return false;
+        }
+        for (String entry : perception.nearbyBlocks()) {
+            if (entry == null || entry.isBlank()) {
+                continue;
+            }
+            int split = entry.indexOf('@');
+            if (split <= 0) {
+                continue;
+            }
+            if (blockId.equals(entry.substring(0, split))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean hasAnyFood(List<String> inventory) {
+        if (inventory == null || inventory.isEmpty()) {
+            return false;
+        }
+        for (String entry : inventory) {
+            int split = entry.indexOf('x');
+            String itemId = split > 0 ? entry.substring(0, split) : entry;
+            if (FOOD_POINTS.containsKey(itemId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private BlockPos findTargetBlock(BotPerception perception, List<String> preferredIds) {
@@ -1530,16 +1623,15 @@ public final class AIPlayerRuntime {
         }
 
         Instant now = Instant.now();
-        if (botFakePlayer != null) {
-            botHunger = botFakePlayer.getFoodData().getFoodLevel();
-            bot.setHealth(botFakePlayer.getHealth());
-            advanceSurvivalClock(now);
-            return;
-        }
         if (lastHungerAt == null || Duration.between(lastHungerAt, now).toSeconds() >= 60) {
             botHunger = Math.max(0, botHunger - 1);
             lastHungerAt = now;
             this.memoryRepository.recordAction("bot-hunger", "hunger=" + botHunger);
+        }
+
+        if (botFakePlayer != null) {
+            consumeFoodIfNeeded(botFakePlayer);
+            bot.setHealth(botFakePlayer.getHealth());
         }
 
         if (lastHarvestAt == null || Duration.between(lastHarvestAt, now).toSeconds() >= 120) {
@@ -1671,6 +1763,30 @@ public final class AIPlayerRuntime {
     }
 
     public record BotAskResult(long interactionId, String response) {
+    }
+
+    private void consumeFoodIfNeeded(FakePlayer player) {
+        if (player == null || botHunger >= 12) {
+            return;
+        }
+        for (ItemStack stack : player.getInventory().items) {
+            if (stack == null || stack.isEmpty()) {
+                continue;
+            }
+            String itemId = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+            Integer points = FOOD_POINTS.get(itemId);
+            if (points == null) {
+                continue;
+            }
+            stack.shrink(1);
+            botHunger = Math.min(20, botHunger + points);
+            this.memoryRepository.recordAction("bot-eat", "item=" + itemId + " hunger=" + botHunger);
+            return;
+        }
+    }
+
+    private boolean isNightTime(long timeOfDay) {
+        return timeOfDay >= 13000L && timeOfDay <= 23000L;
     }
 
     public record DecisionStats(int decisionsMade, int decisionSkips, Instant lastDecisionAt) {
