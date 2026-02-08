@@ -111,7 +111,7 @@ public final class ActionExecutor {
 
     private ActionResult executeStep(ServerLevel level, AIBotEntity bot, String botName, BotActionStep step) {
         return switch (step.type()) {
-            case MOVE -> doMove(bot, step);
+            case MOVE -> doMove(level, bot, step);
             case MINE -> doMine(level, botName, bot, step);
             case PLACE -> doPlace(level, bot, step);
             case ATTACK -> doAttack(level, botName, bot, step);
@@ -122,16 +122,17 @@ public final class ActionExecutor {
         };
     }
 
-    private ActionResult doMove(AIBotEntity bot, BotActionStep step) {
+    private ActionResult doMove(ServerLevel level, AIBotEntity bot, BotActionStep step) {
         if (bot == null || step.target() == null) {
             return ActionResult.failure("no target");
         }
-        Vec3 target = new Vec3(step.target().getX() + 0.5, step.target().getY(), step.target().getZ() + 0.5);
+        Vec3 target = resolveApproachTarget(level, step.target());
         double distance = bot.position().distanceToSqr(target);
         if (distance <= 2.25) {
             return ActionResult.success("arrived");
         }
         bot.getNavigation().moveTo(target.x, target.y, target.z, 1.1);
+        bot.getMoveControl().setWantedPosition(target.x, target.y, target.z, 1.1);
         return ActionResult.running("moving");
     }
 
@@ -140,10 +141,11 @@ public final class ActionExecutor {
             return ActionResult.failure("missing target");
         }
         if (bot != null) {
-            Vec3 target = Vec3.atCenterOf(step.target());
+            Vec3 target = resolveApproachTarget(level, step.target());
             double distance = bot.position().distanceToSqr(target);
             if (distance > 9.0) {
                 bot.getNavigation().moveTo(target.x, target.y, target.z, 1.1);
+                bot.getMoveControl().setWantedPosition(target.x, target.y, target.z, 1.1);
                 return ActionResult.running("moving to target");
             }
         }
@@ -164,10 +166,11 @@ public final class ActionExecutor {
             return ActionResult.failure("missing target/item");
         }
         if (bot != null) {
-            Vec3 target = Vec3.atCenterOf(step.target());
+            Vec3 target = resolveApproachTarget(level, step.target());
             double distance = bot.position().distanceToSqr(target);
             if (distance > 9.0) {
                 bot.getNavigation().moveTo(target.x, target.y, target.z, 1.1);
+                bot.getMoveControl().setWantedPosition(target.x, target.y, target.z, 1.1);
                 return ActionResult.running("moving to target");
             }
         }
@@ -248,6 +251,36 @@ public final class ActionExecutor {
             return ActionResult.success("interacted");
         }
         return ActionResult.failure("interact failed");
+    }
+
+    private Vec3 resolveApproachTarget(ServerLevel level, BlockPos target) {
+        BlockState state = level.getBlockState(target);
+        if (!state.blocksMotion()) {
+            return new Vec3(target.getX() + 0.5, target.getY(), target.getZ() + 0.5);
+        }
+
+        BlockPos[] candidates = new BlockPos[] {
+            target.north(),
+            target.south(),
+            target.east(),
+            target.west(),
+            target.above()
+        };
+        for (BlockPos candidate : candidates) {
+            if (isStandable(level, candidate)) {
+                return new Vec3(candidate.getX() + 0.5, candidate.getY(), candidate.getZ() + 0.5);
+            }
+        }
+
+        // Fallback: keep a nearby point even if not ideal.
+        return new Vec3(target.getX() + 1.5, target.getY(), target.getZ() + 0.5);
+    }
+
+    private boolean isStandable(ServerLevel level, BlockPos pos) {
+        BlockState feet = level.getBlockState(pos);
+        BlockState head = level.getBlockState(pos.above());
+        BlockState below = level.getBlockState(pos.below());
+        return !feet.blocksMotion() && !head.blocksMotion() && below.blocksMotion();
     }
 
     private Block resolveBlock(String itemId) {
