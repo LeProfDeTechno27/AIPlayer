@@ -24,6 +24,8 @@ Cette base est 100% dockerisee pour le serveur et le dev du mod.
 - `MC_JVM_HEAP_MAX` : heap maximum (ex: 12G)
 - `MC_JVM_EXTRA_OPTS` : options JVM additionnelles
 - `MC_FORCE_JVM_ARGS_UPDATE` : forcer regen `user_jvm_args.txt`
+- `MC_MAX_TICK_TIME` : valeur `max-tick-time` dans `server.properties` (defaut `-1` pour desactiver le watchdog NeoForge)
+- `STRICT_MOD_SYNC` : `true` (defaut) purge `/data/mods` avant copie depuis `mods.zip`; `false` conserve les jars existants
 - `AIPLAYER_DECISION_INTERVAL_SECONDS` : intervalle decisions Ollama (secondes)
 - `AIPLAYER_DECISION_WINDOW_SECONDS` : fenetre rate-limit decisions LLM
 - `AIPLAYER_DECISION_MAX_PER_WINDOW` : max decisions LLM par fenetre

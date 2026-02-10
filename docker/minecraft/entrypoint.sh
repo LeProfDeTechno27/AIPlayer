@@ -6,6 +6,8 @@ BOOTSTRAP_MODS_DIR="${BOOTSTRAP_MODS_DIR:-/bootstrap/mods}"
 BOOTSTRAP_MODS_ZIP="${BOOTSTRAP_MODS_ZIP:-/bootstrap/mods.zip}"
 BOOTSTRAP_NEOFORGE_DIR="${BOOTSTRAP_NEOFORGE_DIR:-/bootstrap/neoforge}"
 BOOTSTRAP_CONFIG_DIR="${BOOTSTRAP_CONFIG_DIR:-/bootstrap/server-config}"
+STRICT_MOD_SYNC="${STRICT_MOD_SYNC:-true}"
+MAX_TICK_TIME="${MAX_TICK_TIME:--1}"
 
 log() {
   echo "[aiplayer-entrypoint] $*"
@@ -51,9 +53,7 @@ install_neoforge() {
 
 is_lfs_pointer() {
   local file="$1"
-  local first_line
-  first_line="$(head -n 1 "$file" 2>/dev/null || true)"
-  [[ "$first_line" == "version https://git-lfs.github.com/spec/v1" ]]
+  grep -a -q -m1 '^version https://git-lfs.github.com/spec/v1$' "$file" 2>/dev/null
 }
 
 ensure_valid_mods_zip() {
@@ -85,7 +85,24 @@ extract_mods_zip() {
   rm -rf "$temp_dir"
 }
 
+purge_existing_mods() {
+  local removed_count=0
+
+  while IFS= read -r -d '' existing_mod; do
+    rm -f "$existing_mod"
+    removed_count=$((removed_count + 1))
+  done < <(find "$DATA_DIR/mods" -maxdepth 1 -type f -name '*.jar' -print0)
+
+  if [[ "$removed_count" -gt 0 ]]; then
+    log "Purge des anciens mods: $removed_count supprimes depuis $DATA_DIR/mods"
+  fi
+}
+
 sync_mods() {
+  if [[ "$(to_bool "$STRICT_MOD_SYNC")" == "true" ]]; then
+    purge_existing_mods
+  fi
+
   if [[ -d "$BOOTSTRAP_MODS_DIR" ]]; then
     log "Synchronisation des mods depuis $BOOTSTRAP_MODS_DIR vers $DATA_DIR/mods"
     while IFS= read -r -d '' mod_file; do
@@ -117,12 +134,64 @@ copy_default_server_config() {
   done < <(find "$BOOTSTRAP_CONFIG_DIR" -maxdepth 1 -type f -print0)
 }
 
+set_server_property() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+
+  if grep -Eq "^${key}=" "$file"; then
+    sed -i "s/^${key}=.*/${key}=${value}/" "$file"
+  else
+    echo "${key}=${value}" >> "$file"
+  fi
+}
+
+ensure_server_properties() {
+  local file
+  file="$DATA_DIR/server.properties"
+
+  if [[ ! -f "$file" ]]; then
+    return
+  fi
+
+  if [[ -n "${MAX_TICK_TIME:-}" ]]; then
+    set_server_property "$file" "max-tick-time" "$MAX_TICK_TIME"
+  fi
+}
+
 ensure_jvm_args() {
+  local file
   local force_update
+  local has_xms
+  local has_xmx
+
+  file="$DATA_DIR/user_jvm_args.txt"
   force_update="$(to_bool "${FORCE_JVM_ARGS_UPDATE:-false}")"
 
-  if [[ ! -f "$DATA_DIR/user_jvm_args.txt" || "$force_update" == "true" ]]; then
-    cat > "$DATA_DIR/user_jvm_args.txt" <<EOF
+  if [[ ! -f "$file" || "$force_update" == "true" ]]; then
+    cat > "$file" <<EOF
+-Xms${JVM_HEAP_MIN:-4G}
+-Xmx${JVM_HEAP_MAX:-20G}
+${JVM_EXTRA_OPTS:-}
+EOF
+    return
+  fi
+
+  if grep -Eq '^[[:space:]]*-Xms' "$file"; then
+    has_xms="true"
+  else
+    has_xms="false"
+  fi
+
+  if grep -Eq '^[[:space:]]*-Xmx' "$file"; then
+    has_xmx="true"
+  else
+    has_xmx="false"
+  fi
+
+  if [[ "$has_xms" != "true" || "$has_xmx" != "true" ]]; then
+    log "Regeneration de user_jvm_args.txt (Xms/Xmx manquants)"
+    cat > "$file" <<EOF
 -Xms${JVM_HEAP_MIN:-4G}
 -Xmx${JVM_HEAP_MAX:-20G}
 ${JVM_EXTRA_OPTS:-}
@@ -145,6 +214,7 @@ fi
 
 sync_mods
 copy_default_server_config
+ensure_server_properties
 ensure_jvm_args
 
 cd "$DATA_DIR"

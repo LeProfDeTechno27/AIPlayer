@@ -46,6 +46,11 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class AIPlayerRuntime {
     private static final String MARKER_TAG = "aiplayer_bot_marker";
@@ -96,11 +101,21 @@ public final class AIPlayerRuntime {
     private int decisionSkips;
     private boolean paused;
     private boolean debug = resolveDebug();
+    private final ExecutorService plannerExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "aiplayer-ollama-planner");
+        thread.setDaemon(true);
+        return thread;
+    });
+    private CompletableFuture<BotActionPlan> pendingPlanFuture;
+    private BotGoal pendingPlanGoal;
+    private BotPerception pendingPlanPerception;
+    private Instant pendingPlanStartedAt;
     private Instant lastBotLookupAt;
     private final Duration botLookupCooldown = Duration.ofSeconds(5);
     private final int decisionIntervalTicks = resolveDecisionIntervalTicks();
     private final int actionTimeoutTicks = resolveActionTimeoutTicks();
     private final int maxPlanSteps = resolveMaxPlanSteps();
+    private final Duration plannerMaxWait = resolvePlannerMaxWait();
     private static final Map<String, Integer> FOOD_POINTS = Map.ofEntries(
         Map.entry("minecraft:bread", 5),
         Map.entry("minecraft:cooked_beef", 8),
@@ -204,6 +219,7 @@ public final class AIPlayerRuntime {
         processPendingAe2CraftRequests();
         AIBotEntity bot = getTrackedBot(level);
         if (bot == null) {
+            cancelPendingPlan("bot-missing");
             recordTickLog(now);
             return;
         }
@@ -215,6 +231,7 @@ public final class AIPlayerRuntime {
             actionExecutor.clearPlan();
         }
         processSurvivalLoop(level);
+        processPendingPlan(now);
 
         if (paused) {
             recordDecisionStats(now);
@@ -248,6 +265,13 @@ public final class AIPlayerRuntime {
             return;
         }
 
+        if (pendingPlanFuture != null) {
+            decisionSkips++;
+            recordDecisionStats(now);
+            recordTickLog(now);
+            return;
+        }
+
         lastPerception = collectPerception(level, bot);
         lastPerceptionAt = now;
         if (lastPerception != null) {
@@ -265,18 +289,114 @@ public final class AIPlayerRuntime {
 
         activeGoal = goal;
         String memorySummary = buildMemorySummary();
-        BotActionPlan plan = botPlanner.plan(lastPerception, goal, memorySummary, maxPlanSteps);
+        submitPlanAsync(lastPerception, goal, memorySummary, now);
+
+        recordDecisionStats(now);
+        recordTickLog(now);
+    }
+
+    private void processPendingPlan(Instant now) {
+        if (pendingPlanFuture == null) {
+            return;
+        }
+
+        if (pendingPlanStartedAt != null
+            && Duration.between(pendingPlanStartedAt, now).compareTo(plannerMaxWait) > 0) {
+            BotGoal timedOutGoal = pendingPlanGoal;
+            BotPerception timedOutPerception = pendingPlanPerception;
+            cancelPendingPlan("planner-timeout");
+            applyResolvedPlan(null, timedOutGoal, timedOutPerception, now, "planner-timeout");
+            return;
+        }
+
+        if (!pendingPlanFuture.isDone()) {
+            return;
+        }
+
+        BotGoal resolvedGoal = pendingPlanGoal;
+        BotPerception resolvedPerception = pendingPlanPerception;
+        BotActionPlan plan = null;
+        String failureReason = null;
+        try {
+            plan = pendingPlanFuture.join();
+        } catch (CancellationException cancellation) {
+            failureReason = "planner-cancelled";
+        } catch (CompletionException completion) {
+            failureReason = "planner-error";
+            Throwable cause = completion.getCause() == null ? completion : completion.getCause();
+            String message = cause.getMessage();
+            if (message == null || message.isBlank()) {
+                message = cause.getClass().getSimpleName();
+            }
+            if (message.length() > 180) {
+                message = message.substring(0, 180);
+            }
+            this.memoryRepository.recordAction("bot-plan-error", "reason=" + message);
+        } catch (Exception exception) {
+            failureReason = "planner-error";
+            String message = exception.getMessage();
+            if (message == null || message.isBlank()) {
+                message = exception.getClass().getSimpleName();
+            }
+            if (message.length() > 180) {
+                message = message.substring(0, 180);
+            }
+            this.memoryRepository.recordAction("bot-plan-error", "reason=" + message);
+        }
+
+        clearPendingPlan();
+        applyResolvedPlan(plan, resolvedGoal, resolvedPerception, now, failureReason);
+    }
+
+    private void submitPlanAsync(BotPerception perception, BotGoal goal, String memorySummary, Instant now) {
+        if (perception == null || goal == null) {
+            return;
+        }
+
+        pendingPlanGoal = goal;
+        pendingPlanPerception = perception;
+        pendingPlanStartedAt = now;
+        try {
+            pendingPlanFuture = CompletableFuture.supplyAsync(
+                () -> botPlanner.plan(perception, goal, memorySummary, maxPlanSteps),
+                plannerExecutor
+            );
+        } catch (Exception exception) {
+            clearPendingPlan();
+            String message = exception.getMessage();
+            if (message == null || message.isBlank()) {
+                message = exception.getClass().getSimpleName();
+            }
+            if (message.length() > 180) {
+                message = message.substring(0, 180);
+            }
+            this.memoryRepository.recordAction("bot-plan-submit-error", "reason=" + message);
+            applyResolvedPlan(null, goal, perception, now, "planner-submit-error");
+        }
+    }
+
+    private void applyResolvedPlan(
+        BotActionPlan plan,
+        BotGoal goal,
+        BotPerception perception,
+        Instant now,
+        String fallbackReasonOverride
+    ) {
         BotActionPlan sanitized = sanitizePlan(plan);
         if (sanitized == null || sanitized.isEmpty()) {
-            String fallbackReason = "planner-empty";
-            if (plan != null && plan.rationale() != null && !plan.rationale().isBlank()) {
+            String fallbackReason = fallbackReasonOverride;
+            if ((fallbackReason == null || fallbackReason.isBlank())
+                && plan != null
+                && plan.rationale() != null
+                && !plan.rationale().isBlank()) {
                 fallbackReason = plan.rationale();
             }
-            BotActionPlan fallback = buildHeuristicPlan(goal, lastPerception, fallbackReason);
+            if (fallbackReason == null || fallbackReason.isBlank()) {
+                fallbackReason = "planner-empty";
+            }
+            BotActionPlan fallback = buildHeuristicPlan(goal, perception, fallbackReason);
             if (fallback == null || fallback.isEmpty()) {
                 decisionSkips++;
-                recordDecisionStats(now);
-                recordTickLog(now);
                 return;
             }
             sanitized = fallback;
@@ -290,9 +410,22 @@ public final class AIPlayerRuntime {
             "bot-plan",
             "goal=" + sanitized.goal() + " steps=" + sanitized.steps().size() + " rationale=" + sanitized.rationale()
         );
+    }
 
-        recordDecisionStats(now);
-        recordTickLog(now);
+    private void cancelPendingPlan(String reason) {
+        if (pendingPlanFuture == null) {
+            return;
+        }
+        pendingPlanFuture.cancel(true);
+        clearPendingPlan();
+        this.memoryRepository.recordAction("bot-plan-cancel", "reason=" + reason);
+    }
+
+    private void clearPendingPlan() {
+        pendingPlanFuture = null;
+        pendingPlanGoal = null;
+        pendingPlanPerception = null;
+        pendingPlanStartedAt = null;
     }
 
     private boolean shouldThrottleForMspt(ServerLevel level, Instant now) {
@@ -2129,6 +2262,26 @@ public final class AIPlayerRuntime {
         }
         if (seconds > 600) {
             seconds = 600;
+        }
+        return Duration.ofSeconds(seconds);
+    }
+
+    private Duration resolvePlannerMaxWait() {
+        String prop = System.getProperty("aiplayer.plannerMaxWaitSeconds");
+        String env = System.getenv("AIPLAYER_PLANNER_MAX_WAIT_SECONDS");
+        long seconds = 20;
+        String raw = (prop != null && !prop.isBlank()) ? prop : env;
+        if (raw != null && !raw.isBlank()) {
+            try {
+                seconds = Long.parseLong(raw.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        if (seconds < 2) {
+            seconds = 2;
+        }
+        if (seconds > 180) {
+            seconds = 180;
         }
         return Duration.ofSeconds(seconds);
     }

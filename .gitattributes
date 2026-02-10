@@ -1,1 +1,2 @@
 Ressource[[:space:]]minecraft/mods.zip filter=lfs diff=lfs merge=lfs -text
+*.sh text eol=lf
